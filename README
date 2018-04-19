@@ -1,0 +1,34 @@
+
+This directory contains files for iRODS utilities.
+
+At the moment it is only the 'ifind' utility.
+
+The files in this directory are:
+  Makefile          make file
+  LICENSE           is a license file with a permissive BSD license
+  README            this readme file
+  ifind.c           C source file for the ifind utility
+  ifind.1           Manual page for the ifind utility
+
+The ifind utility is a bit similar to the traditional find
+command in Unix.
+
+It was born out of the issues we've had when dealing with
+large directory trees in iRODS. It scans a directory tree
+and executes a command for each file passing the file name
+as an argument.
+
+To list the directory tree it directly connects to the Postgres
+database with the metadata so it's best to be used on the
+icat host though it can take any connect string to connect
+to a remote Postgres database. It is Postgres specific. It uses
+cursors so it retrieves the results in batches, how many rows
+to return in a batch is adjustable. It can be directed to scan
+only directories or files, the full pathname is returned in
+every case. The output can be sorted, reverse sort for directories
+produces a canonical order traverse list.
+
+The make file accepts the usual targets, 'all' or no
+arguments to create the executable, 'test', 'install', 'clean' and
+'dist' also work as expected.
+
