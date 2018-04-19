@@ -1,0 +1,91 @@
+.TH IFIND "1" "2018-04-25" "iRODS find utility" "User Commands"
+
+.SH NAME
+ifind \- iRODS find utility
+
+.SH SYNOPSYS
+.B ifind
+.B [ \-h ]
+.B [ \-C\ \fIconnection\fR ]
+.B [ \-D ]
+.B [ \-b\ \fIbatchsize\fR ]
+.B [ \-c\ \fIcommand\fR ]
+.B [ \-d\ \fIlevel\fR ]
+.B [ \-p\ \fIn\fR ]
+.B [ \-q ]
+.B [ \-s\ \fItype\fR ]
+.B [ \-v ]
+.B [ \-p\ \fIpattern\fR\]
+.B \fIcollection\fR
+
+.SH DESCRIPTION
+
+This utility is a bit similar to the traditional find
+command in Unix.
+
+It scans a directory tree and executes a command for each
+file passing the file/directory name as an argument.
+
+To list the directory tree it directly connects to the Postgres
+database with the metadata so it's best to be used on the
+icat host though it can take any connect string to connect
+to a remote Postgres database. It is Postgres specific. It uses
+cursors so it retrieves the results in batches, how many rows
+to return in a batch is adjustable. It can be directed to scan
+only directories or files, the full pathname is returned in
+every case. The output can be sorted, reverse sort for directories
+produces a canonical order traverse list.
+
+.TP
+.B \-h\fR
+to print this help.
+
+.TP
+.B \-C \fIconnection\fR
+Postgres connect string to identify the database to connect to.
+
+.TP
+.B \-D\fR
+Print only directories (collections).
+
+.TP
+.B \-b \fIbatchsize\fR
+the number of rows to retrieve in one batch. The default
+is 1024.
+
+.TP
+.B \-c \fIcommand\fR
+is the command to execute for each file/directory.
+The absolute pathname will be appended in single quotes.
+Alternatively a printf string with '%s' markers can be
+supplied, in which case the markers will be replaced with
+the pathname, just like with printf. Only five of these can
+be specified. It is best to supply this string using single
+quotes.
+
+.TP
+.B \-d \fIlevel\fR
+is the debug level, larger number for more details.
+The default is no debug, if this switch is omitted.
+
+.TP
+.B \-p \fIn\fR
+progress indicator, print a dot for each n files as
+processed.
+
+.TP
+.B \-q\fR
+Quiet.
+
+.TP
+.B \-s \fItype\fR
+Sort type, 0 for no sort, 1 for ascending, 2 for descending.
+
+.TP
+.B \-v\fR
+Verbose.
+
+.TP
+.B \fIcollection\fR
+is a collection/directory to use as root of the tree.
+
