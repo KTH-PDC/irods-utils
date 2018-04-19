@@ -1,4 +1,4 @@
-# Make file for the ifind unility.
+# Makefile is the make file for irods utilities.
 
 # Postgres environment.
 PGROOT=/usr/pgsql-9.4
@@ -6,8 +6,19 @@ PGLIB=$(PGROOT)/lib
 PGINC=$(PGROOT)/include
 LIBS=-lpq
 
+# C switches.
+CSWITCH=-g -I$(PGINC) -L$(PGLIB)
+
 # Distribution tarball.
-DIST=~/ifind-0.1.tar.gz
+DIST=~/iutil-0.1.tar.gz
+
+# Install directories.
+DESTDIR=/usr/local
+DESTBIN=$DESTDIR/bin
+DESTMAN=$DESTDIR/man/man1
+
+# Test output.
+LIST=files.list
 
 # Default target.
 all: ifind
@@ -16,31 +27,42 @@ all: ifind
 clean:
 	rm -f core
 	rm -f ifind
+	rm -f $(LIST)
 
 distclean: clean
 
-# Our executable.
+# Install.
+install: ifind
+	cp ifind $DESTBIN/
+	cp ifind.1 $DESTMAN/
+
+# Utility ifind executable.
 ifind: ifind.c
-	cc -I$(PGINC) -L$(PGLIB) -o ifind ifind.c $(LIBS)
+	cc $(CSWITCH) -o ifind ifind.c $(LIBS)
 
 # Test.
 test: ifind
+	echo "Starting tests"
 	-./ifind
 	-./ifind a
 	-./ifind /b/
 	-./ifind /nonexistent
 	-./ifind -C "dbname=NODB user=nouser" '/snic.se/test'
 	-./ifind -h
-	./ifind -d 99 -q '/snic.se/home/fconagy/x'
-	./ifind -v '/snic.se/home/fconagy/x'
-	./ifind -v -D '/snic.se/home/fconagy/x'
-	./ifind -v -s 1 '/snic.se/home/fconagy/x'
-	./ifind -v -s 2 '/snic.se/home/fconagy/x'
+	./ifind -d 99 -q '/snic.se/home/fconagy/x' >$(LIST)
+	./ifind -v '/snic.se/home/fconagy/x' >>$(LIST)
+	./ifind -v -D '/snic.se/home/fconagy/x' >>$(LIST)
+	./ifind -v -s 1 '/snic.se/home/fconagy/x' >>$(LIST)
+	./ifind -v -s 2 '/snic.se/home/fconagy/x' >>$(LIST)
 	-./ifind -v -s 3 '/snic.se/home/fconagy/x'
-	./ifind -c 'echo' '/snic.se/home/fconagy/x'
-	./ifind -d 99 -c "echo '%s'" '/snic.se/home/fconagy/x'
+	./ifind -c 'echo' '/snic.se/home/fconagy/x' >>$(LIST)
+	./ifind -d 99 -c "echo '%s'" '/snic.se/home/fconagy/x' >>$(LIST)
+	./ifind '/snic.se/home/fconagy/x' >>$(LIST)
+	echo "Tests finished check $(LIST)"
 
-dist:
-	make distclean
-	(cd ..;  tar -cf $(DIST) ./ifind)
+# Distribution kit.
+dist: distclean
+	(cd ..;  tar -cf $(DIST) ./iutil)
+
+# End of file Makefile.
 
