@@ -28,11 +28,11 @@ typedef signed int boolean;
 /* End of string character. */
 #define EOS '\0'
 
-/* Slash. */
+/* Slash character. */
 #define SLASH '/'
 
 /* Exit codes. */
-#define PGRESEXEC ((int) 1)		/* Postgres execute error */
+#define PGRESEXEC	((int) 1)		/* Postgres execute error */
 #define CANTCONNECT ((int) 2)		/* Cannot connect to database */
 
 /* Path name length, this is difficult to tell. Arbitarily big. */
@@ -104,7 +104,7 @@ info (char *format, ...)
 	}
 }
 
-/* Progress message. */
+/* Progress message (no new line). */
 
 static void
 pmsg (char *format, ...)
@@ -284,7 +284,7 @@ r_coll_main WHERE coll_name LIKE '%s'";
 	}
 	else
 	{
-		err (FAILURE, "Wrong sort option");
+		err (FAILURE, "Wrong sort option %d", sorted);
 	}
 
 	/* Build fetch SQL statement similarly. */
@@ -442,7 +442,9 @@ closecursor (pghandle_t *h)
 	/* Free memory. */
 	PQclear (h->res);
 
-	/* Free more memory, leave conn and res. */
+	/* Free more memory. */
+	h->conn = NULL;
+	h->res = NULL;
 	free (h->select_cmd);
 	free (h->fetch_cmd);
 	free (h->close_cmd);
@@ -451,6 +453,7 @@ closecursor (pghandle_t *h)
 	h->close_cmd = NULL;
 	h->nrows = 0;
 	h->nfields = 0;
+	free (h);
 }
 
 /* Show progress */
@@ -508,6 +511,7 @@ do_command (char *command, char *pathname)
 	{
 		err (FAILURE, "Too many formats in do_command");
 	}
+	free (s);
 
 	/* Build command. */
 	if ((strlen (command) + formats * (strlen (pathname) + 2) + 3) >
@@ -553,6 +557,69 @@ do_command (char *command, char *pathname)
 	}
 }
 
+/* Return size string in SI units to print. */
+
+char *
+printsize (long long unsigned total)
+{
+
+	/* Various sizes. */
+	long long unsigned kib = 1024;
+	long long unsigned mib = 1024 * kib;
+	long long unsigned gib = 1024 * mib;
+	long long unsigned tib = 1024 * gib;
+	long long unsigned pib = 1024 * tib;
+	long long unsigned eib = 1024 * pib;
+	long long unsigned zib = 1024 * eib;
+	long long unsigned yib = 1024 * zib;
+
+	/* Converted string with leeway. */
+	char cvs[24 + 4 + 1 + 64];
+
+	/* String to be returned. */
+	char *r;
+
+	/* With SI unit prefixes. */
+	if (total < kib)
+	{
+		(void) sprintf (cvs, "%24llu B", total);
+	}
+	else if (total >= kib && total < mib)
+	{
+		(void) sprintf (cvs, "%24llu KiB", total / kib);
+	}
+	else if (total >= mib && total < gib)
+	{
+		(void) sprintf (cvs, "%24llu MiB", total / mib);
+	}
+	else if (total >= gib && total < tib)
+	{
+		(void) sprintf (cvs, "%24llu GiB", total / gib);
+	}
+	else if (total >= tib && total < pib)
+	{
+		(void) sprintf (cvs, "%24llu TiB", total / tib);
+	}
+	else if (total >= pib && total < eib)
+	{
+		(void) sprintf (cvs, "%24llu PiB", total / pib);
+	}
+	else if (total >= eib && total < zib)
+	{
+		(void) sprintf (cvs, "%24llu EiB", total / eib);
+	}
+	else if (total >= zib && total < yib)
+	{
+		(void) sprintf (cvs, "%24llu ZiB", total / zib);
+	}
+	else
+	{
+		(void) sprintf (cvs, "%24llu YiB", total / yib);
+	}
+	r = strdup (cvs);
+	return (r);
+}
+
 /* Print help. */
 
 void
@@ -566,18 +633,19 @@ Usage:\n\
 where\n\
     -h              prints this help\n\
     -C connection   is the connect details for the database. Quoted string.\n\
-    -D              Select directories/collections only,\n\
-                    files will not be listed.\n\
-                    Otherwise it will list directories and files.\n\
-                    First the directory and then files in that directory.\n\
+                    The default is 'dbname=ICAT user=irods'.\n\
+    -D              Select directories/collections only.\n\
+                    In this case files will not be listed.\n\
+                    The default is to list files.\n\
     -b batchsize    is the number of rows to process in one go.\n\
                     The default is 1024.\n\
     -c command      is the command to execute for all files/directories.\n\
-                    Quoted string.\n\
+                    Quoted string. There is no default.\n\
     -d level        set the debug level, greater for more details.\n\
     -p n            show progress indicator for every n files.\n\
     -q              set quiet.\n\
     -s type         set sort type, 0 for no sort, 1 ascending, 2 descending.\n\
+                    The default is not to sort.\n\
     -v              set verbose.\n\
     collection      is a collection/directory to use as root of the tree.\n\
 ");
@@ -591,7 +659,7 @@ main (int argc, char *argv[])
 {
 
 	/* Option string. */
-	char *options = "hC:Db:d:c:p:qs:v";
+	char *options = "hC:Db:c:d:p:qs:v";
 
 	/* Getopt option. */
 	int ch;
@@ -639,13 +707,13 @@ main (int argc, char *argv[])
 	int i, j;
 
 	/* Number of records seen. */
-	long unsigned rno;
+	long long unsigned rno;
 
 	/* Number of directories. */
-	long unsigned dno;
+	long long unsigned dno;
 
 	/* Number of files. */
-	long unsigned fno;
+	long long unsigned fno;
 
 	/* Collection id. */
 	char *coll_id;
@@ -659,11 +727,14 @@ main (int argc, char *argv[])
 	/* Path name. */
 	char *pathname;
 
-	/* Total size, all files under the specified directory tree. */
-	long unsigned total;
+	/* Grand total size, all files under the specified directory tree. */
+	long long unsigned total;
 
 	/* File size. */
-	long unsigned filesize;
+	long long unsigned filesize;
+
+	/* Total size string. */
+	char *totalsize;
 
 	/* Get command line switches. */
 	ch = getopt (argc, argv, options);
@@ -696,6 +767,10 @@ main (int argc, char *argv[])
 			break;
 		case 'c':
 			command = optarg;
+			if (strlen (command) == 0)
+			{
+				err (FAILURE, "Wrong argument for command");
+			}
 			break;
 		case 's':
 			sort = atoi (optarg);
@@ -716,6 +791,9 @@ main (int argc, char *argv[])
 			break;
 		case 'q':
 			quiet = true;
+			break;
+		case '?':
+			err (FAILURE, "Unknown switch");
 			break;
 		default:
 			err (FAILURE, "Unknown switch %c", ch);
@@ -763,6 +841,10 @@ main (int argc, char *argv[])
 
 	/* Check directory string. */
 	directory_len = strlen (directory);
+	if (directory_len == 0)
+	{
+		err (FAILURE, "Directory string empty - confused");
+	}
 	if (*(directory + directory_len - 1) == SLASH)
 	{
 
@@ -784,7 +866,7 @@ main (int argc, char *argv[])
 			connect_string);
 	}
 
-	/* Start transaction block. We are only reading which is the default. */
+	/* Start transaction block. We are only reading, which is the default. */
 	res = pcmd (conn, "BEGIN");
 	PQclear (res);
 
@@ -795,13 +877,13 @@ main (int argc, char *argv[])
 	hd = select_directories (conn, sort, batchsize, directory);
 
 	/* Go through the directories. */
-	rno = (long unsigned) 0;
-	dno = (long unsigned) 0;
-	fno = (long unsigned) 0;
-	total = (long unsigned) 0;
+	rno = (long long unsigned) 0;
+	dno = (long long unsigned) 0;
+	fno = (long long unsigned) 0;
+	total = (long long unsigned) 0;
 	fetch (hd);
-	rno += (long unsigned) hd->nrows;
-	dno += (long unsigned) hd->nrows;
+	rno += (long long unsigned) hd->nrows;
+	dno += (long long unsigned) hd->nrows;
 	while (hd->nrows > 0)
 	{
 		for (i=0; i<(hd->nrows); i++)
@@ -830,8 +912,8 @@ main (int argc, char *argv[])
 				/* Now the files in that directory. */
 				hf = select_files (conn, sort, batchsize, coll_id);
 				fetch (hf);
-				rno += (long unsigned) hf->nrows;
-				fno += (long unsigned) hf->nrows;
+				rno += (long long unsigned) hf->nrows;
+				fno += (long long unsigned) hf->nrows;
 				while (hf->nrows > 0)
 				{
 					for (j=0; j<(hf->nrows); j++)
@@ -841,7 +923,7 @@ main (int argc, char *argv[])
 						filename = PQgetvalue(hf->res, j, 1);
 
 						/* File size. */
-						filesize = (long unsigned)
+						filesize = (long long unsigned)
 							atol (PQgetvalue(hf->res, j, 0));
 						total += filesize;
 
@@ -866,35 +948,38 @@ main (int argc, char *argv[])
 
 					/* Next batch of files. */
 					fetch (hf);
-					rno += (long unsigned) hf->nrows;
-					fno += (long unsigned) hf->nrows;
+					rno += (long long unsigned) hf->nrows;
+					fno += (long long unsigned) hf->nrows;
 					show_progress (rno);
 				}
 				closecursor (hf);
 			}
 		}
 		fetch (hd);
-		rno += (long unsigned) hd->nrows;
-		dno += (long unsigned) hd->nrows;
+		rno += (long long unsigned) hd->nrows;
+		dno += (long long unsigned) hd->nrows;
 	}
 	closecursor (hd);
 	free (pathname);
 
 	/* Finish. */
-	if (verbose > 0)
+	if (! quiet)
 	{
 
 		/* Print summary. */
-		msg ("%24lu records seen", rno);
-		msg ("%24lu directories", dno);
-		msg ("%24lu files", fno);
-		msg ("%24lu bytes grand total", total);
+		totalsize = printsize (total);
+		msg ("%24llu records seen", rno);
+		msg ("%24llu directories", dno);
+		msg ("%24llu files", fno);
+		msg ("%24llu bytes grand total", total);
+		msg ("%-24s grand total", totalsize);
+		free (totalsize);
 	}
 	res = pcmd (conn, "END");
 	PQclear (res);
 	PQfinish (conn);
 	exit (SUCCESS);
-}
+} 
 
 /* End of file IFIND.C */
 
