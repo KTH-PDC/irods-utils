@@ -55,6 +55,9 @@ static int verbose = 0;
 /* Progress indicator. */
 static int progress = 0;
 
+/* Print summary. */
+static int summary = false;
+
 /* Error exit. */
 
 static void
@@ -637,6 +640,7 @@ where\n\
     -D              Select directories/collections only.\n\
                     In this case files will not be listed.\n\
                     The default is to list files.\n\
+    -S              print summary.\n\
     -b batchsize    is the number of rows to process in one go.\n\
                     The default is 1024.\n\
     -c command      is the command to execute for all files/directories.\n\
@@ -659,7 +663,7 @@ main (int argc, char *argv[])
 {
 
 	/* Option string. */
-	char *options = "hC:Db:c:d:p:qs:v";
+	char *options = "hC:DSb:c:d:p:qs:v";
 
 	/* Getopt option. */
 	int ch;
@@ -751,18 +755,14 @@ main (int argc, char *argv[])
 		case 'D':
 			dirsonly = true;
 			break;
+		case 'S':
+			summary = true;
+			break;
 		case 'b':
 			batchsize = atoi (optarg);
 			if (batchsize <= 0)
 			{
 				err (FAILURE, "Wrong number for batch size");
-			}
-			break;
-		case 'd':
-			debug = atoi (optarg);
-			if (debug <= 0)
-			{
-				err (FAILURE, "Wrong number for debug level");
 			}
 			break;
 		case 'c':
@@ -772,15 +772,12 @@ main (int argc, char *argv[])
 				err (FAILURE, "Wrong argument for command");
 			}
 			break;
-		case 's':
-			sort = atoi (optarg);
-			if (sort < 0)
+		case 'd':
+			debug = atoi (optarg);
+			if (debug <= 0)
 			{
-				err (FAILURE, "Wrong number for sort type");
+				err (FAILURE, "Wrong number for debug level");
 			}
-			break;
-		case 'v':
-			verbose = 1;
 			break;
 		case 'p':
 			progress = atoi (optarg);
@@ -791,6 +788,16 @@ main (int argc, char *argv[])
 			break;
 		case 'q':
 			quiet = true;
+			break;
+		case 's':
+			sort = atoi (optarg);
+			if (sort < 0)
+			{
+				err (FAILURE, "Wrong number for sort type");
+			}
+			break;
+		case 'v':
+			verbose = 1;
 			break;
 		case '?':
 			err (FAILURE, "Unknown switch");
@@ -963,7 +970,7 @@ main (int argc, char *argv[])
 	free (pathname);
 
 	/* Finish. */
-	if (! quiet)
+	if (summary)
 	{
 
 		/* Print summary. */
