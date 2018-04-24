@@ -11,6 +11,7 @@ ifind \- iRODS find utility
 .B [ \-b\ \fIbatchsize\fR ]
 .B [ \-c\ \fIcommand\fR ]
 .B [ \-d\ \fIlevel\fR ]
+.B [ \-f ]
 .B [ \-p\ \fIn\fR ]
 .B [ \-q ]
 .B [ \-s\ \fItype\fR ]
@@ -71,6 +72,10 @@ is the debug level, larger number for more details.
 The default is no debug, if this switch is omitted.
 
 .TP
+.B \-f\fR
+Force, continue even when the command returns non-zero status.
+
+.TP
 .B \-p \fIn\fR
 progress indicator, print a dot for each n files as
 processed.
@@ -86,6 +91,15 @@ Sort type, 0 for no sort, 1 for ascending, 2 for descending.
 .TP
 .B \-S\fR
 Print summary at the end.
+
+.TP
+.B \-t\fR
+Test, print command string but don't execute.
+
+.TP
+.B \-u \fIlocale\fR
+Check pathnames if they confirm to UTF-8 or other locale, as specified.
+The locale name is the one like en_US.UTF8 as per the Posix specification.
 
 .TP
 .B \-v\fR

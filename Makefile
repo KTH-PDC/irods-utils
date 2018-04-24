@@ -53,11 +53,13 @@ test: ifind
 	./ifind -v '/snic.se/home/fconagy/x' >>$(LIST)
 	./ifind -v -D '/snic.se/home/fconagy/x' >>$(LIST)
 	./ifind -v -s 1 '/snic.se/home/fconagy/x' >>$(LIST)
-	./ifind -v -s 2 '/snic.se/home/fconagy/x' >>$(LIST)
+	./ifind -v -S -s 2 '/snic.se/home/fconagy/x' >>$(LIST)
 	-./ifind -v -s 3 '/snic.se/home/fconagy/x'
 	./ifind -c 'echo' '/snic.se/home/fconagy/x' >>$(LIST)
 	./ifind -d 99 -c "echo '%s'" '/snic.se/home/fconagy/x' >>$(LIST)
-	./ifind '/snic.se/home/fconagy/x' >>$(LIST)
+	./ifind -S '/snic.se/home/fconagy/x' >>$(LIST)
+	./ifind -u en_US.UTF8 /snic.se/home/fconagy
+	./ifind -u C /snic.se/home/fconagy >>$(LIST)
 	echo "Tests finished check $(LIST)"
 
 # Distribution kit.

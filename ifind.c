@@ -10,6 +10,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <locale.h>
+#include <xlocale.h>
 
 /* Postgres includes. Requires Postgres development packages. */
 #include "libpq-fe.h"
@@ -49,14 +51,20 @@ static int debug = 0;
 /* Quiet. */
 static int quiet = false;
 
-/* Verbose level. */
-static int verbose = 0;
+/* Verbose. */
+static int verbose = false;
 
 /* Progress indicator. */
 static int progress = 0;
 
 /* Print summary. */
 static int summary = false;
+
+/* Test, print command string only. */
+int test = false;
+
+/* Continue when command fails. */
+int force = false;
 
 /* Error exit. */
 
@@ -473,6 +481,27 @@ show_progress (unsigned long rno)
 	}
 }
 
+/* Check if pathname is a UTF-8 string. */
+
+int
+is_utf (char *pathname)
+{
+	size_t l;
+
+	l = mbstowcs (NULL, pathname, 0);
+	if (l == (size_t) -1)
+	{
+
+		/* Print non-conforming path. */
+		msg ("'%s'", pathname);
+		return (false);
+	}
+	else
+	{
+		return (true);
+	}
+}
+
 /* Execute command with pathname. */
 
 void
@@ -553,10 +582,20 @@ do_command (char *command, char *pathname)
 	{
 		msg ("Running '%s'", cmd);
 	}
-	status = system (cmd);
-	if (status != 0)
+	if (test)
 	{
-		err (FAILURE, "do_command failed for file %s", pathname);
+		msg ("%s", cmd);
+	}
+	else
+	{
+		status = system (cmd);
+		if (status != 0)
+		{
+			if (! force)
+			{
+				err (FAILURE, "do_command failed for file %s", pathname);
+			}
+		}
 	}
 }
 
@@ -646,10 +685,13 @@ where\n\
     -c command      is the command to execute for all files/directories.\n\
                     Quoted string. There is no default.\n\
     -d level        set the debug level, greater for more details.\n\
+    -f              force, continue when the command returns non-zero status.\n\
     -p n            show progress indicator for every n files.\n\
     -q              set quiet.\n\
     -s type         set sort type, 0 for no sort, 1 ascending, 2 descending.\n\
                     The default is not to sort.\n\
+    -t              test, print command string.\n\
+    -u locale       check pathname according to specified locale.\n\
     -v              set verbose.\n\
     collection      is a collection/directory to use as root of the tree.\n\
 ");
@@ -663,7 +705,7 @@ main (int argc, char *argv[])
 {
 
 	/* Option string. */
-	char *options = "hC:DSb:c:d:p:qs:v";
+	char *options = "hC:DSb:c:d:p:qs:tu:v";
 
 	/* Getopt option. */
 	int ch;
@@ -682,6 +724,12 @@ main (int argc, char *argv[])
 
 	/* Command to execute for all files. */
 	char *command = "";
+
+	/* UTF-8 checker locale. */
+	char *utf = NULL;
+
+	/* Old locale from setlocale. */
+	char *oldlocale;
 
 	/* Directory name. */
 	char *directory = "";
@@ -737,6 +785,9 @@ main (int argc, char *argv[])
 	/* File size. */
 	long long unsigned filesize;
 
+	/* Nut UTF. */
+	long long unsigned nutfno;
+
 	/* Total size string. */
 	char *totalsize;
 
@@ -779,6 +830,9 @@ main (int argc, char *argv[])
 				err (FAILURE, "Wrong number for debug level");
 			}
 			break;
+		case 'f':
+			force = true;
+			break;
 		case 'p':
 			progress = atoi (optarg);
 			if (progress <= 0)
@@ -796,8 +850,22 @@ main (int argc, char *argv[])
 				err (FAILURE, "Wrong number for sort type");
 			}
 			break;
+		case 't':
+			test = true;
+			break;
+		case 'u':
+			utf = optarg;
+			if (strlen (utf) > (size_t) 0)
+			{
+				oldlocale = setlocale (LC_ALL, utf);
+				if (oldlocale == NULL)
+				{
+					err (FAILURE, "Invalid locale name %s", utf);
+				}
+			}
+			break;
 		case 'v':
-			verbose = 1;
+			verbose = true;
 			break;
 		case '?':
 			err (FAILURE, "Unknown switch");
@@ -888,6 +956,7 @@ main (int argc, char *argv[])
 	dno = (long long unsigned) 0;
 	fno = (long long unsigned) 0;
 	total = (long long unsigned) 0;
+	nutfno = (long long unsigned) 0;
 	fetch (hd);
 	rno += (long long unsigned) hd->nrows;
 	dno += (long long unsigned) hd->nrows;
@@ -947,6 +1016,13 @@ main (int argc, char *argv[])
 						{
 							info ("%s", pathname);
 						}
+						if (utf != NULL)
+						{
+							if (! is_utf (pathname))
+							{
+								nutfno++;
+							}
+						}
 						if (strlen (command) != 0)
 						{
 							do_command (command, pathname);
@@ -980,6 +1056,10 @@ main (int argc, char *argv[])
 		msg ("%24llu files", fno);
 		msg ("%24llu bytes grand total", total);
 		msg ("%-24s grand total", totalsize);
+		if (nutfno > 0)
+		{
+			msg ("%llu malformed", nutfno);
+		}
 		free (totalsize);
 	}
 	res = pcmd (conn, "END");
