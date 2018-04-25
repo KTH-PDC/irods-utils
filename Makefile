@@ -60,6 +60,7 @@ test: ifind
 	./ifind -S '/snic.se/home/fconagy/x' >>$(LIST)
 	./ifind -u en_US.UTF8 /snic.se/home/fconagy
 	./ifind -u C /snic.se/home/fconagy >>$(LIST)
+	./ifind -S -u C /snic.se/home/fconagy >>$(LIST)
 	echo "Tests finished check $(LIST)"
 
 # Distribution kit.

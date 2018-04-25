@@ -491,9 +491,6 @@ is_utf (char *pathname)
 	l = mbstowcs (NULL, pathname, 0);
 	if (l == (size_t) -1)
 	{
-
-		/* Print non-conforming path. */
-		msg ("'%s'", pathname);
 		return (false);
 	}
 	else
@@ -518,6 +515,18 @@ do_command (char *command, char *pathname)
 	if (debug > 5)
 	{
 		msg ("do command '%s' '%s'", command, pathname);
+	}
+
+	/* Null action when no command. */
+	if (command == NULL)
+	{
+		return;
+	}
+
+	/* Check. */
+	if (strlen (command) == (size_t) 0)
+	{
+		err (FAILURE, "Empty command string in do_command");
 	}
 
 	/* Count format items (starting with %). */
@@ -723,7 +732,7 @@ main (int argc, char *argv[])
 	int sort = 0;
 
 	/* Command to execute for all files. */
-	char *command = "";
+	char *command = NULL;
 
 	/* UTF-8 checker locale. */
 	char *utf = NULL;
@@ -977,10 +986,7 @@ main (int argc, char *argv[])
 				{
 					info ("%s", dirname);
 				}
-				if (strlen (command) != 0)
-				{
-					do_command (command, dirname);
-				}
+				do_command (command, dirname);
 			}
 			else
 			{
@@ -1020,11 +1026,19 @@ main (int argc, char *argv[])
 						{
 							if (! is_utf (pathname))
 							{
+
+								/* Print non-conforming path. */
+								msg ("%s", pathname);
+
+								/* Execute command for malformed path. */
+								do_command (command, pathname);
 								nutfno++;
 							}
 						}
-						if (strlen (command) != 0)
+						else
 						{
+
+							/* Generic case. */
 							do_command (command, pathname);
 						}
 					}
@@ -1058,7 +1072,7 @@ main (int argc, char *argv[])
 		msg ("%-24s grand total", totalsize);
 		if (nutfno > 0)
 		{
-			msg ("%llu malformed", nutfno);
+			msg ("%24llu malformed", nutfno);
 		}
 		free (totalsize);
 	}
