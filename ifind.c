@@ -223,7 +223,7 @@ typedef struct pghandle {
 
 /* Issue select for directories. */
 
-pghandle_t *
+static pghandle_t *
 select_directories (PGconn *conn, int sorted, int fetchcount,
 	char *directory)
 {
@@ -327,7 +327,7 @@ r_coll_main WHERE coll_name LIKE '%s'";
 
 /* Issue select for files in a directory. */
 
-pghandle_t *
+static pghandle_t *
 select_files (PGconn *conn, int sorted, int fetchcount,
 	char *directory)
 {
@@ -419,7 +419,7 @@ FROM r_data_main WHERE coll_id=%s";
 
 /* Issue fetch. */
 
-void
+static void
 fetch (pghandle_t *h)
 {
 
@@ -443,7 +443,7 @@ fetch (pghandle_t *h)
 
 /* Issue close cursor and finish select. */
 
-void
+static void
 closecursor (pghandle_t *h)
 {
 
@@ -469,7 +469,7 @@ closecursor (pghandle_t *h)
 
 /* Show progress */
 
-void
+static void
 show_progress (unsigned long rno)
 {
 	if (progress > 0)
@@ -483,7 +483,7 @@ show_progress (unsigned long rno)
 
 /* Check if pathname is a UTF-8 string. */
 
-int
+static int
 is_utf (char *pathname)
 {
 	size_t l;
@@ -501,7 +501,7 @@ is_utf (char *pathname)
 
 /* Execute command with pathname. */
 
-void
+static void
 do_command (char *command, char *pathname)
 {
 	char *s;
@@ -610,7 +610,7 @@ do_command (char *command, char *pathname)
 
 /* Return size string in SI units to print. */
 
-char *
+static char *
 printsize (long long unsigned total)
 {
 
@@ -673,7 +673,7 @@ printsize (long long unsigned total)
 
 /* Print help. */
 
-void
+static void
 print_help (void)
 {
 	(void) fprintf (stdout, "\
