@@ -61,6 +61,15 @@ test: ifind
 	./ifind -u en_US.UTF8 /snic.se/home/fconagy
 	./ifind -u C /snic.se/home/fconagy >>$(LIST)
 	./ifind -S -u C /snic.se/home/fconagy >>$(LIST)
+	./ifind -D -c echo /snic.se/home/fconagy/x | wc -l
+
+xxx:
+	./ifind -S -D -c echo /snic.se/home/fconagy/x
+	./ifind -c echo /snic.se/home/fconagy/x | wc -l
+	./ifind -S /snic.se/home/fconagy/x
+	./ifind -S -n 4 -c echo /snic.se/home/fconagy/x
+	./ifind -S -n 32 -c echo /snic.se/home/fconagy/x
+	./ifind -S -n 4 -b 32 -c echo /snic.se/home/fconagy/x
 	echo "Tests finished check $(LIST)"
 
 # Distribution kit.
