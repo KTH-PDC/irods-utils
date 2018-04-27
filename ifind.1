@@ -12,6 +12,7 @@ ifind \- iRODS find utility
 .B [ \-c\ \fIcommand\fR ]
 .B [ \-d\ \fIlevel\fR ]
 .B [ \-f ]
+.B [ \-n\ \fIn\fR ]
 .B [ \-p\ \fIn\fR ]
 .B [ \-q ]
 .B [ \-s\ \fItype\fR ]
@@ -74,6 +75,14 @@ The default is no debug, if this switch is omitted.
 .TP
 .B \-f\fR
 Force, continue even when the command returns non-zero status.
+
+.TP
+.B \-n \fIn\fR
+This option specifies multitasking, n tasks will be forked in
+parallel, each to process one batch as moving forward. Please note
+that in this case the output with pathnames will be garbled and not
+usable for further processing since the all the processes are writing
+the same time.
 
 .TP
 .B \-p \fIn\fR

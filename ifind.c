@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <locale.h>
 #include <xlocale.h>
 
@@ -499,41 +500,44 @@ is_utf (char *pathname)
 	}
 }
 
-/* Execute command with pathname. */
+/* Build the command using command string and pathname. */
 
 static void
-do_command (char *command, char *pathname)
+build_command (char *cmd, char *cmds, char *pathname)
 {
 	char *s;
 	char *state;
 	char *token;
 	int formats;
-	char cmd[COMMAND_LENGTH];
 	int status;
+
+	/* Null command string. */
+	if (cmds == NULL)
+	{
+		err (FAILURE, "Command string is null");
+	}
+
+	/* Check. */
+	if (strlen (cmds) == (size_t) 0)
+	{
+		err (FAILURE, "Empty command string in build_command");
+	}
+	if (index (pathname, 0x027) != NULL)
+	{
+		err (FAILURE, "Single quote detected in pathname - wrong");
+	}
 
 	/* Enter command function. */
 	if (debug > 5)
 	{
-		msg ("do command '%s' '%s'", command, pathname);
-	}
-
-	/* Null action when no command. */
-	if (command == NULL)
-	{
-		return;
-	}
-
-	/* Check. */
-	if (strlen (command) == (size_t) 0)
-	{
-		err (FAILURE, "Empty command string in do_command");
+		msg ("build command '%s' '%s'", cmds, pathname);
 	}
 
 	/* Count format items (starting with %). */
-	s = strdup (command);
+	s = strdup (cmds);
 	if (s == NULL)
 	{
-		err (FAILURE, "Function strdup failed in do_command");
+		err (FAILURE, "Function strdup failed in build_command");
 	}
 	state = s;
 	formats = 0;
@@ -546,16 +550,16 @@ do_command (char *command, char *pathname)
 	formats--;
 	if (formats < 0)
 	{
-		err (FAILURE, "Wrong formats in do_command - confused");
+		err (FAILURE, "Wrong formats in build_command - confused");
 	}
 	if (formats > 4)
 	{
-		err (FAILURE, "Too many formats in do_command");
+		err (FAILURE, "Too many formats in build_command");
 	}
 	free (s);
 
 	/* Build command. */
-	if ((strlen (command) + formats * (strlen (pathname) + 2) + 3) >
+	if ((strlen (cmds) + formats * (strlen (pathname) + 2) + 3) >
 		COMMAND_LENGTH)
 	{
 		err (FAILURE, "Strings too long for command");
@@ -563,30 +567,41 @@ do_command (char *command, char *pathname)
 	switch (formats)
 	{
 	case 0:
-		(void) strcpy (cmd, command);
+		(void) strcpy (cmd, cmds);
 		(void) strcat (cmd, " ");
 		(void) strcat (cmd, "'");
 		(void) strcat (cmd, pathname);
 		(void) strcat (cmd, "'");
 		break;
 	case 1:
-		(void) sprintf (cmd, command, pathname);
+		(void) sprintf (cmd, cmds, pathname);
 		break;
 	case 2:
-		(void) sprintf (cmd, command, pathname, pathname);
+		(void) sprintf (cmd, cmds, pathname, pathname);
 		break;
 	case 3:
-		(void) sprintf (cmd, command, pathname, pathname, pathname);
+		(void) sprintf (cmd, cmds, pathname, pathname, pathname);
 		break;
 	case 4:
-		(void) sprintf (cmd, command, pathname, pathname, pathname, pathname);
+		(void) sprintf (cmd, cmds, pathname, pathname, pathname, pathname);
 		break;
 	default:
-		err (FAILURE, "Bad formats in do_command - confused");
+		err (FAILURE, "Bad formats in build_command - confused");
 		break;
 	}
+}
 
-	/* Run the command. */
+/* Run command. */
+
+static int
+do_command (char *cmd)
+{
+	int status;
+
+	if (strlen (cmd) == 0)
+	{
+		err (FAILURE, "Command is the empty string", cmd);
+	}
 	if (debug > 5)
 	{
 		msg ("Running '%s'", cmd);
@@ -602,8 +617,336 @@ do_command (char *command, char *pathname)
 		{
 			if (! force)
 			{
-				err (FAILURE, "do_command failed for file %s", pathname);
+				err (FAILURE, "Command '%s' with %d", cmd, status);
 			}
+		}
+	}
+	return (status);
+}
+
+/* Maximum number of tasks. */
+#define MAX_TASKS ((int) 64)
+
+/* Task descriptor. */
+typedef struct
+{
+
+	/* Task number. */
+	int no;
+
+	/* Task PID. */
+	pid_t pid;
+
+	/* Number of commands to execute. */
+	int ncmd;
+
+	/* Next command slot. */
+	int nextcmd;
+
+	/* Array of commands. */
+	char **cmds;
+} task_t;
+
+/* Work descriptor. */
+typedef struct
+{
+
+	/* Number of tasks. */
+	int ntasks;
+
+	/* Next task slot. */
+	int nexttask;
+
+	/* Array of pointers to tasks. */
+	task_t **tasks;
+
+	/* Running indicator. */
+	int running;
+} work_t;
+
+/* Global variable, work descriptor with tasks array. */
+work_t *work = NULL;
+
+/* Initialize task descriptor with n tasks, m commands each. */
+
+static task_t **
+init_tasks (int n, int m)
+{
+	task_t **r;
+	int i;
+	int j;
+
+	/* Check. */
+	if (n > MAX_TASKS)
+	{
+		err (FAILURE, "Too many tasks (%d) maximum %d",
+			n, MAX_TASKS);
+	}
+
+	/* Create array of pointers to tasks. */
+	r = (task_t **) allocate (n * sizeof (task_t *));
+
+	/* Allocate space for the commands array in all tasks. */
+	for (i=0; i<n; i++)
+	{
+		r[i] = (task_t *) allocate (sizeof (task_t));
+		r[i]->no = i;
+		r[i]->pid = 0;
+		r[i]->ncmd = m;
+		r[i]->nextcmd = 0;
+		r[i]->cmds = (char **) allocate (m * sizeof (char *));
+		for (j=0; j<m; j++)
+		{
+			r[i]->cmds[j] = (char *) allocate (COMMAND_LENGTH);
+		}
+	}
+	return (r);
+}
+
+/* Create work descriptor. */
+
+static work_t *
+create_work (int n, int m)
+{
+	work_t *r;
+
+	r = new (work_t);
+	r->ntasks = n;
+	r->nexttask = 0;
+	r->tasks = init_tasks (n, m);
+	r->running = false;
+}
+
+/* Execute function in parallel. */
+
+static void
+parallel (work_t *w, int (*f)(work_t *w, int taskid))
+{
+	task_t **tasks;
+	int n;
+	int i;
+	pid_t pid;
+	pid_t cpid;
+	int cstatus;
+	int exited;
+	int wait_pid;
+	int wait_status;
+
+	/* Get work data. */
+	tasks = w->tasks;
+	n = w->ntasks;
+
+	/* Check. */
+	if (n > MAX_TASKS || n <= 0)
+	{
+		err (FAILURE, "Wrong number of tasks (%d), should be 0 < n <= %d",
+			n, MAX_TASKS);
+	}
+
+	/* Fork n subprocesses. */
+	for (i=0; i<n; i++)
+	{
+		pid = fork ();
+		if (pid < 0)
+		{
+			err (FAILURE, "Cannot fork task %d", i);
+		}
+		if (pid == 0)
+		{
+			/* Child. */
+			cpid = getpid ();
+			tasks[i]->pid = cpid;
+
+			/* Run the function. */
+			cstatus = f (w, i);
+
+			/* Exit child. */
+			exit (cstatus);
+		}
+		else
+		{
+
+			/* Parent. */
+			;
+		}
+	}
+
+	/* Wait for all of them to exit. */
+	exited = 0;
+	while (exited < n)
+	{
+		wait_pid = wait (&wait_status);
+		if (wait_pid < 0)
+		{
+			err (FAILURE, "Error waiting");
+		}
+		exited++;
+	}
+
+	/* All exited at this point so we are finished. */
+	sleep (1);
+}
+
+/* Parallel test function. */
+
+static int
+p (work_t *w, int taskid)
+{
+	int threadsafe;
+
+	threadsafe = PQisthreadsafe();
+	if (! threadsafe)
+	{
+		err (FAILURE, "Postgres library libpq is not thread safe - confused");
+	}
+	printf ("task %d\n", taskid);
+	printf ("pid %d\n", w->tasks[taskid]->pid);
+}
+
+/* Run the queue. */
+
+static int
+run_queue (work_t *w, int taskid)
+{
+	task_t *t;
+	int i;
+	int n;
+	int status;
+
+	/* Taskid is the same as the index. */
+	t = w->tasks[taskid];
+
+	/* Process the task. */
+	n = t->nextcmd - 1;
+	if (debug > 5)
+	{
+		msg ("Running the queue as task %d, %d cmds", taskid, n);
+	}
+	for (i=0; i<n; i++)
+	{
+
+		/* Just execute the command string. */
+		status = do_command (t->cmds[i]);
+	}
+	return (status);
+}
+
+/* Queue command for later parallel execution. */
+
+static void
+queue_command (work_t *w, char *cs)
+{
+	task_t *t;
+	int i;
+
+	/* Fill in the next available slot, if any. */
+	t = w->tasks[w->nexttask];
+	if (t->nextcmd < t->ncmd)
+	{
+
+		/* Still have empty slot with current task, insert command. */
+		if (debug > 5)
+		{
+			msg ("Filling task %d slot %d",
+				w->nexttask, t->nextcmd);
+		}
+		strncpy (t->cmds[t->nextcmd], cs, COMMAND_LENGTH);
+		t->nextcmd++;
+	}
+	else
+	{
+
+		/* Current task is full, need to move on to the next one. */
+		w->nexttask++;
+		if (w->nexttask < w->ntasks)
+		{
+
+			/* We are on the next empty task. */
+			t = w->tasks[w->nexttask];
+			if (t->nextcmd != 0)
+			{
+
+				/* Next task is not empty, we've got an issue. */
+				err (FAILURE,
+					"Moving on to next task but nonempty slots - confused");
+			}
+
+			/* Insert command as first for this task. */
+			if (debug > 5)
+			{
+				msg ("Filling task %d slot %d", w->nexttask, t->nextcmd);
+			}
+			strncpy (t->cmds[t->nextcmd], cs, COMMAND_LENGTH);
+			t->nextcmd++;
+		}
+		else
+		{
+			/* All tasks full so run the queue. */
+			if (debug > 5)
+			{
+				msg ("Running the queue");
+			}
+			w->running = true;
+			parallel (w, run_queue);
+
+			/* Finished running the queue, clean up. */
+			w->running = false;
+			w->nexttask = 0;
+			for (i=0; i<w->ntasks; i++)
+			{
+				w->tasks[i]->pid = 0;
+				w->tasks[i]->nextcmd = 0;
+			}
+		}
+	}
+}
+
+/* Flush the queue. */
+
+static void
+flush_queue (work_t *w)
+{
+	int i;
+
+	/* The queue is to be flushed when there is stuff in it. */
+	if ((w->tasks[0]->nextcmd > 0) && (! w->running))
+	{
+		/* At least the first task has stuff and not running. */
+		if (debug > 5)
+		{
+			msg ("Flushing the queue");
+		}
+		w->running = true;
+		parallel (w, run_queue);
+		w->running = false;
+		w->nexttask = 0;
+		for (i=0; i<w->ntasks; i++)
+		{
+			w->tasks[i]->pid = 0;
+			w->tasks[i]->nextcmd = 0;
+		}
+	}
+}
+
+/* Execute command for a pathname. */
+
+static void
+execute (int ntasks, char *command, char *path)
+{
+	char cs[COMMAND_LENGTH];
+	int status;
+
+	/* NOP when no command was specified. */
+	if (command != NULL)
+	{
+		build_command (cs, command, path);
+		if (ntasks > 0)
+		{
+			queue_command (work, cs);
+		}
+		else
+		{
+			status = do_command (cs);
 		}
 	}
 }
@@ -695,6 +1038,7 @@ where\n\
                     Quoted string. There is no default.\n\
     -d level        set the debug level, greater for more details.\n\
     -f              force, continue when the command returns non-zero status.\n\
+    -n n            number of parallel worker tasks.\n\
     -p n            show progress indicator for every n files.\n\
     -q              set quiet.\n\
     -s type         set sort type, 0 for no sort, 1 ascending, 2 descending.\n\
@@ -714,7 +1058,7 @@ main (int argc, char *argv[])
 {
 
 	/* Option string. */
-	char *options = "hC:DSb:c:d:p:qs:tu:v";
+	char *options = "hC:DSb:c:d:fn:p:qs:tu:v";
 
 	/* Getopt option. */
 	int ch;
@@ -736,6 +1080,9 @@ main (int argc, char *argv[])
 
 	/* UTF-8 checker locale. */
 	char *utf = NULL;
+
+	/* Number of tasks, 0 means paralellism disabled. */
+	int ntasks = 0;
 
 	/* Old locale from setlocale. */
 	char *oldlocale;
@@ -842,6 +1189,13 @@ main (int argc, char *argv[])
 		case 'f':
 			force = true;
 			break;
+		case 'n':
+			ntasks = atoi (optarg);
+			if (ntasks <= 0)
+			{
+				err (FAILURE, "Wrong number for number of workers");
+			}
+			break;
 		case 'p':
 			progress = atoi (optarg);
 			if (progress <= 0)
@@ -908,8 +1262,12 @@ main (int argc, char *argv[])
 			msg ("Directories only");
 		}
 		msg ("Batch size is %d", batchsize);
+		if (command != NULL)
+		{
+			msg ("Command string is '%s'", command);
+		}
 		msg ("Debug level is %d", debug);
-		msg ("Command string is '%s'", command);
+		msg ("Number of worker tasks is %d", ntasks);
 		msg ("Sort type is %d", sort);
 		if (verbose)
 		{
@@ -921,6 +1279,11 @@ main (int argc, char *argv[])
 			msg ("Quiet is on");
 		}
 		msg ("Directory string is '%s'", directory);
+	}
+
+	if (ntasks > 0)
+	{
+		work = create_work (ntasks, batchsize);
 	}
 
 	/* Check directory string. */
@@ -986,7 +1349,7 @@ main (int argc, char *argv[])
 				{
 					info ("%s", dirname);
 				}
-				do_command (command, dirname);
+				execute (ntasks, command, dirname);
 			}
 			else
 			{
@@ -1031,7 +1394,7 @@ main (int argc, char *argv[])
 								msg ("%s", pathname);
 
 								/* Execute command for malformed path. */
-								do_command (command, pathname);
+								execute (ntasks, command, pathname);
 								nutfno++;
 							}
 						}
@@ -1039,7 +1402,7 @@ main (int argc, char *argv[])
 						{
 
 							/* Generic case. */
-							do_command (command, pathname);
+							execute (ntasks, command, pathname);
 						}
 					}
 
@@ -1059,7 +1422,18 @@ main (int argc, char *argv[])
 	closecursor (hd);
 	free (pathname);
 
+	/* Last flush when needed. */
+	if (ntasks > 0)
+	{
+
+		/* Flush queue if it was parallel. */
+		flush_queue (work);
+	}
+
 	/* Finish. */
+	res = pcmd (conn, "END");
+	PQclear (res);
+	PQfinish (conn);
 	if (summary)
 	{
 
@@ -1076,9 +1450,6 @@ main (int argc, char *argv[])
 		}
 		free (totalsize);
 	}
-	res = pcmd (conn, "END");
-	PQclear (res);
-	PQfinish (conn);
 	exit (SUCCESS);
 } 
 
