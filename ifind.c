@@ -530,7 +530,7 @@ build_command (char *cmd, char *cmds, char *pathname)
 	/* Enter command function. */
 	if (debug > 5)
 	{
-		msg ("build command '%s' '%s'", cmds, pathname);
+		msg ("Build command '%s' '%s'", cmds, pathname);
 	}
 
 	/* Count format items (starting with %). */
@@ -604,7 +604,7 @@ do_command (char *cmd)
 	}
 	if (debug > 5)
 	{
-		msg ("Running '%s'", cmd);
+		msg ("Running command '%s'", cmd);
 	}
 	if (test)
 	{
@@ -715,6 +715,7 @@ create_work (int n, int m)
 	r->nexttask = 0;
 	r->tasks = init_tasks (n, m);
 	r->running = false;
+	return (r);
 }
 
 /* Execute function in parallel. */
@@ -817,17 +818,34 @@ run_queue (work_t *w, int taskid)
 	t = w->tasks[taskid];
 
 	/* Process the task. */
-	n = t->nextcmd - 1;
-	if (debug > 5)
-	{
-		msg ("Running the queue as task %d, %d cmds", taskid, n);
-	}
-	for (i=0; i<n; i++)
+	status = 0;
+	n = t->nextcmd;
+	if (n < 0)
 	{
 
-		/* Just execute the command string. */
-		status = do_command (t->cmds[i]);
+		/* This in fact means that nextcmd was 0 at this point, i.e. no task. */
+		if (debug > 5)
+		{
+			msg ("Running the queue as task %d, no cmds", taskid);
+		}
 	}
+	else
+	{
+		if (debug > 5)
+		{
+			msg ("Running the queue as task %d, %d cmds", taskid, n);
+		}
+
+		/* n is the number of commands - 1, that is the last index, 0..n-1. */
+		for (i=0; i<n; i++)
+		{
+
+			/* Just execute the command string. */
+			status = do_command (t->cmds[i]);
+		}
+	}
+
+	/* Return with the status of the last command. */
 	return (status);
 }
 
@@ -884,7 +902,7 @@ queue_command (work_t *w, char *cs)
 			/* All tasks full so run the queue. */
 			if (debug > 5)
 			{
-				msg ("Running the queue");
+				msg ("Start running the queue with %d tasks", w->ntasks);
 			}
 			w->running = true;
 			parallel (w, run_queue);
