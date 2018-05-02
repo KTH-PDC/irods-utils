@@ -10,7 +10,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <locale.h>
 #include <xlocale.h>
 
@@ -45,6 +47,9 @@ typedef signed int boolean;
 #define COMMAND_LENGTH ((size_t) 65536)
 
 /* Globals. */
+
+/* !!!! */
+char *x[] = { "aa", "bb", NULL };
 
 /* Debug level. */
 static int debug = 0;
@@ -509,7 +514,6 @@ build_command (char *cmd, char *cmds, char *pathname)
 	char *state;
 	char *token;
 	int formats;
-	int status;
 
 	/* Null command string. */
 	if (cmds == NULL)
@@ -617,7 +621,8 @@ do_command (char *cmd)
 		{
 			if (! force)
 			{
-				err (FAILURE, "Command '%s' with %d", cmd, status);
+				err (FAILURE, "Command '%s' failed with status %d",
+					cmd, status);
 			}
 		}
 	}
@@ -666,6 +671,9 @@ typedef struct
 
 /* Global variable, work descriptor with tasks array. */
 work_t *work = NULL;
+
+/* Test worker. */
+work_t *tw = NULL;
 
 /* Initialize task descriptor with n tasks, m commands each. */
 
@@ -748,11 +756,17 @@ parallel (work_t *w, int (*f)(work_t *w, int taskid))
 	for (i=0; i<n; i++)
 	{
 		pid = fork ();
-		if (pid < 0)
+		if (pid < (pid_t) 0)
 		{
+
+			/* Detailed reporting. */
+			(void) fprintf (stderr, "Forking %d tasks\n", n);
+			(void) fprintf (stderr, "Fork failed with %d\n", (int) pid);
+			(void) fprintf (stderr, "Corresponds to: '%s'\n", strerror (errno));
+			(void) fflush (stderr);
 			err (FAILURE, "Cannot fork task %d", i);
 		}
-		if (pid == 0)
+		if (pid == (pid_t) 0)
 		{
 			/* Child. */
 			cpid = getpid ();
@@ -783,25 +797,6 @@ parallel (work_t *w, int (*f)(work_t *w, int taskid))
 		}
 		exited++;
 	}
-
-	/* All exited at this point so we are finished. */
-	sleep (1);
-}
-
-/* Parallel test function. */
-
-static int
-p (work_t *w, int taskid)
-{
-	int threadsafe;
-
-	threadsafe = PQisthreadsafe();
-	if (! threadsafe)
-	{
-		err (FAILURE, "Postgres library libpq is not thread safe - confused");
-	}
-	printf ("task %d\n", taskid);
-	printf ("pid %d\n", w->tasks[taskid]->pid);
 }
 
 /* Run the queue. */
@@ -1111,6 +1106,10 @@ main (int argc, char *argv[])
 	/* Directory name length. */
 	size_t directory_len;
 
+	/* Start and end time. */
+	time_t starttime;
+	time_t endtime;
+
 	/* Database connection handle. */
 	PGconn *conn;
 
@@ -1122,12 +1121,6 @@ main (int argc, char *argv[])
 
 	/* Postgres handle for files in a directory. */
 	pghandle_t *hf;
-
-	/* Number of database fields. */
-	int ncols;
-
-	/* Number of database rows returned. */
-	int nrows;
 
 	/* Rows and columns. */
 	int i, j;
@@ -1159,11 +1152,20 @@ main (int argc, char *argv[])
 	/* File size. */
 	long long unsigned filesize;
 
-	/* Nut UTF. */
+	/* Not UTF counted. */
 	long long unsigned nutfno;
 
 	/* Total size string. */
 	char *totalsize;
+
+	/* Duration time in seconds. */
+	long long unsigned duration;
+
+	/* Bandwidth, bit / s. */
+	long long unsigned totalbps;
+
+	/* Total speed string. */
+	char *totalspeed;
 
 	/* Get command line switches. */
 	ch = getopt (argc, argv, options);
@@ -1270,6 +1272,10 @@ main (int argc, char *argv[])
 
 	/* Get directory name (iRODS collection). */
 	directory = argv[optind];
+	if (directory == NULL)
+	{
+		err (FAILURE, "iRODS collection is NULL - confused");
+	}
 
 	/* Print debug info. */
 	if (debug > 5)
@@ -1279,28 +1285,58 @@ main (int argc, char *argv[])
 		{
 			msg ("Directories only");
 		}
+		if (summary)
+		{
+			msg ("Summary requested");
+		}
 		msg ("Batch size is %d", batchsize);
 		if (command != NULL)
 		{
 			msg ("Command string is '%s'", command);
 		}
-		msg ("Debug level is %d", debug);
-		msg ("Number of worker tasks is %d", ntasks);
+		if (debug > 0)
+		{
+			msg ("Debug level is %d", debug);
+		}
+		if (force)
+		{
+			msg ("Ignore errors when running commands");
+		}
+		if (ntasks > 0)
+		{
+			msg ("Number of worker tasks is %d", ntasks);
+		}
 		msg ("Sort type is %d", sort);
 		if (verbose)
 		{
 			msg ("Verbose is on");
 		}
-		msg ("Progress indicator is %d", progress);
+		if (progress > 0)
+		{
+			msg ("Progress indicator is %d", progress);
+		}
 		if (quiet)
 		{
 			msg ("Quiet is on");
+		}
+		if (test)
+		{
+			msg ("Test is on");
+		}
+		if (utf != NULL)
+		{
+			msg ("UTF check requested with locale %s", utf);
 		}
 		msg ("Directory string is '%s'", directory);
 	}
 
 	if (ntasks > 0)
 	{
+		if (! (PQisthreadsafe()))
+		{
+			err (FAILURE,
+				"Postgres library libpq is not thread safe - confused");
+		}
 		work = create_work (ntasks, batchsize);
 	}
 
@@ -1321,6 +1357,13 @@ main (int argc, char *argv[])
 
 		/* The first character is not slash. */
 		err (FAILURE, "Directory name should be an absolute pathname");
+	}
+
+	/* Mark start. */
+	starttime = time (NULL);
+	if (starttime == (time_t) -1)
+	{
+		err (FAILURE, "Error getting start time");
 	}
 
 	/* Connect to database. */
@@ -1452,6 +1495,11 @@ main (int argc, char *argv[])
 	res = pcmd (conn, "END");
 	PQclear (res);
 	PQfinish (conn);
+	endtime = time (NULL);
+	if (endtime == (time_t) -1)
+	{
+		err (FAILURE, "Error getting end time");
+	}
 	if (summary)
 	{
 
@@ -1461,12 +1509,26 @@ main (int argc, char *argv[])
 		msg ("%24llu directories", dno);
 		msg ("%24llu files", fno);
 		msg ("%24llu bytes grand total", total);
-		msg ("%-24s grand total", totalsize);
+		msg ("%24s grand total", totalsize);
 		if (nutfno > 0)
 		{
 			msg ("%24llu malformed", nutfno);
 		}
 		free (totalsize);
+		duration = (long long unsigned) (endtime - starttime);
+		if (duration == 0)
+		{
+			msg ("%24s %s", "n/a", "Finished in less than a second");
+		}
+		else
+		{
+			msg ("%24llu seconds duration", duration);
+			totalbps = total / duration;
+			msg ("%24llu bytes/s", (total / duration));
+			totalspeed = printsize (totalbps);
+			msg ("%24s / second", totalspeed);
+			free (totalspeed);
+		}
 	}
 	exit (SUCCESS);
 } 
