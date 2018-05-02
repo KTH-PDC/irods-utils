@@ -1,0 +1,6 @@
+#!/bin/sh
+
+# Empty command file for testing. Won't do stuff without -c command present.
+
+# Not doing anything.
+exit 0
