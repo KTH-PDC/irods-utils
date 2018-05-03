@@ -1,3 +1,4 @@
+
 # Makefile is the make file for irods utilities.
 
 # Postgres environment.
@@ -6,7 +7,7 @@ PGLIB=$(PGROOT)/lib
 PGINC=$(PGROOT)/include
 LIBS=-lpq
 
-# C switches.
+# C switches. Debug and warnings on.
 CSWITCH=-g -Wall -I$(PGINC) -L$(PGLIB)
 
 # Distribution tarball.
@@ -18,7 +19,9 @@ DESTBIN=$DESTDIR/bin
 DESTMAN=$DESTDIR/man/man1
 
 # Test output.
-LIST=files.list
+LIST=iutil.list
+LF=$(LIST).files
+LD=$(LIST).dir
 TD1=/snic.se/home/fconagy/x
 TD2=/snic.se/home/fconagy
 
@@ -30,6 +33,7 @@ clean:
 	rm -f core
 	rm -f ifind
 	rm -f $(LIST)
+	rm -f $(LF) $(LD)
 
 distclean: clean
 
@@ -51,14 +55,19 @@ test: ifind
 	-./ifind /nonexistent
 	-./ifind -C "dbname=NODB user=nouser" '/snic.se/test'
 	-./ifind -h
-	./ifind -v $(TD1) >>$(LIST)
-	./ifind -v -D $(TD1) >>$(LIST)
-	./ifind -d 99 $(TD1) >$(LIST)
-	./ifind -d 5 $(TD1) >$(LIST)
+	./ifind -v $(TD1) >$(LF)
+	./ifind -v -D $(TD1) >$(LD)
+	./ifind -d 99 $(TD1) >>$(LIST)
+	./ifind -d 5 $(TD1) >>$(LIST)
 	./ifind -v -s 1 $(TD1) >>$(LIST)
 	./ifind -v -s 2 $(TD1) >>$(LIST)
 	-./ifind -v -s 3 $(TD1)
-	./ifind -c 'echo' $(TD1) >>$(LIST)
+	./ifind -c 'echo' $(TD1) >$(LF).1
+	diff $(LF) $(LF).1
+	rm $(LF).1
+	./ifind -D -c 'echo' $(TD1) >$(LD).1
+	diff $(LD) $(LD).1
+	rm $(LD).1
 	./ifind -d 99 -c "echo xxxx '%s' 'x%s'" $(TD1) >>$(LIST)
 	./ifind -S $(TD1) >>$(LIST)
 	./ifind -S -D $(TD1) >>$(LIST)
