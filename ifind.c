@@ -9,6 +9,7 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -223,6 +224,25 @@ typedef struct pghandle {
 	/* Number of fields returned. */
 	int nfields;
 } pghandle_t;
+
+/* Our connection info block. */
+typedef struct db {
+
+	/* Database connection handle. */
+	PGconn *conn;
+
+	/* Postgres exec result. */
+	PGresult *res;
+
+	/* Postgres handle for directories. */
+	pghandle_t *hd;
+
+	/* Postgres handle for files in a directory. */
+	pghandle_t *hf;
+} db_t;
+
+/* Global variable for database info block. */
+db_t *db;
 
 /* Issue select for directories. */
 
@@ -473,11 +493,15 @@ closecursor (pghandle_t *h)
 /* Show progress */
 
 static void
-show_progress (unsigned long rno)
+show_progress (long long unsigned fetches)
 {
 	if (progress > 0)
 	{
-		if ((rno % ((unsigned long) progress)) == (unsigned long) 0)
+
+		/* We got the number of fetches, one fetch should get batchsize
+		   records, sometimes less. */
+		if ((fetches % ((long long unsigned) progress)) ==
+			(long long unsigned) 0)
 		{
 			pmsg (".");
 		}
@@ -668,9 +692,6 @@ typedef struct
 
 /* Global variable, work descriptor with tasks array. */
 work_t *work = NULL;
-
-/* Test worker. */
-work_t *tw = NULL;
 
 /* Initialize task descriptor with n tasks, m commands each. */
 
@@ -1028,6 +1049,36 @@ printsize (long long unsigned total)
 	return (r);
 }
 
+/* Cleaning up. Refers global variable db. */
+
+static void
+cleanup (void)
+{
+	PGresult *res;
+
+	/* Roll back end finish. */
+	closecursor (db->hf);
+	closecursor (db->hd);
+	res = PQexec (db->conn, "ROLLBACK");
+	PQclear (res);
+	PQfinish (db->conn);
+}
+
+/* Signal handler. */
+
+static void
+signal_handler (int signo)
+{
+	if (signo == SIGINT)
+	{
+
+		/* Interrupt received, cleanup and exit. */
+		(void) fprintf(stderr, "Interrupted, exiting\n");
+		cleanup ();
+		exit (FAILURE);
+	}
+}
+
 /* Print help. */
 
 static void
@@ -1107,6 +1158,12 @@ main (int argc, char *argv[])
 	/* Directory name length. */
 	size_t directory_len;
 
+	/* System call status. */
+	int status;
+
+	/* Signal action block to sigaction. */
+	struct sigaction sig;
+
 	/* Start and end time. */
 	time_t starttime;
 	time_t endtime;
@@ -1155,6 +1212,9 @@ main (int argc, char *argv[])
 
 	/* Not UTF counted. */
 	long long unsigned nutfno;
+
+	/* Number of fetches. */
+	long long unsigned fetches;
 
 	/* Total size string. */
 	char *totalsize;
@@ -1360,6 +1420,21 @@ main (int argc, char *argv[])
 		err (FAILURE, "Directory name should be an absolute pathname");
 	}
 
+	/* Establish signal handler. */
+	sig.sa_handler = signal_handler;
+	status = sigaction (SIGINT, &sig, NULL);
+	if (status == -1)
+	{
+		err (FAILURE, "Error calling sigaction");
+	}
+
+	/* Fill out global database info block. */
+	db = new (db_t);
+	db->conn = NULL;
+	db->res = NULL;
+	db->hd = NULL;
+	db->hf = NULL;
+
 	/* Mark start. */
 	starttime = time (NULL);
 	if (starttime == (time_t) -1)
@@ -1374,6 +1449,7 @@ main (int argc, char *argv[])
 		perr (CANTCONNECT, conn, "Cannot connect as %s",
 			connect_string);
 	}
+	db->conn = conn;
 
 	/* Start transaction block. We are only reading, which is the default. */
 	res = pcmd (conn, "BEGIN");
@@ -1384,6 +1460,7 @@ main (int argc, char *argv[])
 
 	/* Issue Postgres select for the directory tree. */
 	hd = select_directories (conn, sort, batchsize, directory);
+	db->hd = hd;
 
 	/* Initialize counters. */
 	rno = (long long unsigned) 0;
@@ -1391,9 +1468,11 @@ main (int argc, char *argv[])
 	fno = (long long unsigned) 0;
 	total = (long long unsigned) 0;
 	nutfno = (long long unsigned) 0;
+	fetches = (long long unsigned) 0;
 
 	/* Go through the directories. */
 	fetch (hd);
+	fetches++;
 	rno += (long long unsigned) hd->nrows;
 	dno += (long long unsigned) hd->nrows;
 	while (hd->nrows > 0)
@@ -1420,7 +1499,9 @@ main (int argc, char *argv[])
 
 				/* Now the files in that directory. */
 				hf = select_files (conn, sort, batchsize, coll_id);
+				db->hf = hf;
 				fetch (hf);
+				fetches++;
 				rno += (long long unsigned) hf->nrows;
 				fno += (long long unsigned) hf->nrows;
 				while ((hf->nrows) > 0)
@@ -1472,16 +1553,19 @@ main (int argc, char *argv[])
 
 					/* Next batch of files. */
 					fetch (hf);
+					fetches++;
 					rno += (long long unsigned) hf->nrows;
 					fno += (long long unsigned) hf->nrows;
-					show_progress (rno);
+					show_progress (fetches);
 				}
 				closecursor (hf);
 			}
 		}
 		fetch (hd);
+		fetches++;
 		rno += (long long unsigned) hd->nrows;
 		dno += (long long unsigned) hd->nrows;
+		show_progress (fetches);
 	}
 	closecursor (hd);
 	free (pathname);
