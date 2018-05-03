@@ -528,7 +528,7 @@ build_command (char *cmd, char *cmds, char *pathname)
 	}
 	if (index (pathname, 0x027) != NULL)
 	{
-		err (FAILURE, "Single quote detected in pathname - wrong");
+		err (FAILURE, "Single quote detected in %s", pathname);
 	}
 
 	/* Enter command function. */
