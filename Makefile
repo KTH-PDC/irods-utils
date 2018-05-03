@@ -7,7 +7,7 @@ PGINC=$(PGROOT)/include
 LIBS=-lpq
 
 # C switches.
-CSWITCH=-g -I$(PGINC) -L$(PGLIB)
+CSWITCH=-g -Wall -I$(PGINC) -L$(PGLIB)
 
 # Distribution tarball.
 DIST=~/iutil-0.1.tar.gz
@@ -51,24 +51,27 @@ test: ifind
 	-./ifind /nonexistent
 	-./ifind -C "dbname=NODB user=nouser" '/snic.se/test'
 	-./ifind -h
-	./ifind -d 99 -q $(TD1) >$(LIST)
 	./ifind -v $(TD1) >>$(LIST)
 	./ifind -v -D $(TD1) >>$(LIST)
+	./ifind -d 99 $(TD1) >$(LIST)
+	./ifind -d 5 $(TD1) >$(LIST)
 	./ifind -v -s 1 $(TD1) >>$(LIST)
-	./ifind -v -S -s 2 $(TD1) >>$(LIST)
+	./ifind -v -s 2 $(TD1) >>$(LIST)
 	-./ifind -v -s 3 $(TD1)
 	./ifind -c 'echo' $(TD1) >>$(LIST)
-	./ifind -d 99 -c "echo '%s'" $(TD1) >>$(LIST)
+	./ifind -d 99 -c "echo xxxx '%s' 'x%s'" $(TD1) >>$(LIST)
 	./ifind -S $(TD1) >>$(LIST)
-	./ifind -u en_US.UTF8 $(TD2)
-	./ifind -u C $(TD2) >>$(LIST)
+	./ifind -S -D $(TD1) >>$(LIST)
+	./ifind -S -u en_US.UTF8 $(TD2)
 	./ifind -S -u C $(TD2) >>$(LIST)
-	echo "Number of directories"
+	./ifind -S -u C $(TD2) >>$(LIST)
+	echo "Number of directories" >>$(LIST)
+	./ifind -D -v $(TD1) | wc -l >>$(LIST)
 	./ifind -D -c echo $(TD1) | wc -l >>$(LIST)
-	./ifind -S -D -c echo $(TD1) >>$(LIST)
-	echo "Number of files"
+	echo "Number of files" >>$(LIST)
+	./ifind -v $(TD1) | wc -l >>$(LIST)
 	./ifind -c echo $(TD1) | wc -l >>$(LIST)
-	./ifind -S $(TD1) >>$(LIST)
+	echo "Parallel" >>$(LIST)
 	./ifind -S -n 4 -c echo $(TD1) >>$(LIST)
 	./ifind -S -n 32 -c echo $(TD1) >>$(LIST)
 	./ifind -S -n 4 -b 32 -c echo $(TD1) >>$(LIST)

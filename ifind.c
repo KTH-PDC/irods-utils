@@ -48,9 +48,6 @@ typedef signed int boolean;
 
 /* Globals. */
 
-/* !!!! */
-char *x[] = { "aa", "bb", NULL };
-
 /* Debug level. */
 static int debug = 0;
 
@@ -532,7 +529,7 @@ build_command (char *cmd, char *cmds, char *pathname)
 	}
 
 	/* Enter command function. */
-	if (debug > 5)
+	if (debug > 10)
 	{
 		msg ("Build command '%s' '%s'", cmds, pathname);
 	}
@@ -606,7 +603,7 @@ do_command (char *cmd)
 	{
 		err (FAILURE, "Command is the empty string", cmd);
 	}
-	if (debug > 5)
+	if (debug > 10)
 	{
 		msg ("Running command '%s'", cmd);
 	}
@@ -903,6 +900,10 @@ queue_command (work_t *w, char *cs)
 			parallel (w, run_queue);
 
 			/* Finished running the queue, clean up. */
+			if (debug > 5)
+			{
+				msg ("Clean up queue");
+			}
 			w->running = false;
 			w->nexttask = 0;
 			for (i=0; i<w->ntasks; i++)
@@ -1384,12 +1385,14 @@ main (int argc, char *argv[])
 	/* Issue Postgres select for the directory tree. */
 	hd = select_directories (conn, sort, batchsize, directory);
 
-	/* Go through the directories. */
+	/* Initialize counters. */
 	rno = (long long unsigned) 0;
 	dno = (long long unsigned) 0;
 	fno = (long long unsigned) 0;
 	total = (long long unsigned) 0;
 	nutfno = (long long unsigned) 0;
+
+	/* Go through the directories. */
 	fetch (hd);
 	rno += (long long unsigned) hd->nrows;
 	dno += (long long unsigned) hd->nrows;
@@ -1420,7 +1423,7 @@ main (int argc, char *argv[])
 				fetch (hf);
 				rno += (long long unsigned) hf->nrows;
 				fno += (long long unsigned) hf->nrows;
-				while (hf->nrows > 0)
+				while ((hf->nrows) > 0)
 				{
 					for (j=0; j<(hf->nrows); j++)
 					{
@@ -1504,11 +1507,11 @@ main (int argc, char *argv[])
 	{
 
 		/* Print summary. */
-		totalsize = printsize (total);
 		msg ("%24llu records seen", rno);
 		msg ("%24llu directories", dno);
 		msg ("%24llu files", fno);
 		msg ("%24llu bytes grand total", total);
+		totalsize = printsize (total);
 		msg ("%24s grand total", totalsize);
 		if (nutfno > 0)
 		{

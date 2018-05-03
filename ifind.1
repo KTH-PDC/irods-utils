@@ -50,7 +50,7 @@ Use quotes when it contains spaces.
 
 .TP
 .B \-D\fR
-Print directories (collections) only.
+Print directory names (collections) only. The default is to print file names.
 
 .TP
 .B \-b \fIbatchsize\fR
@@ -81,13 +81,12 @@ Force, continue even when the command returns non-zero status.
 This option specifies multitasking, n tasks will be forked in
 parallel, each to process one batch as moving forward. Please note
 that in this case the output with pathnames will be garbled and not
-usable for further processing since the all the processes are writing
+suitable for further processing since the all the processes are writing
 the same time.
 
 .TP
 .B \-p \fIn\fR
-progress indicator, print a dot for each n files as
-processed.
+progress indicator, print a dot for each n files as processed.
 
 .TP
 .B \-q\fR
@@ -112,18 +111,26 @@ The locale name is the one like en_US.UTF8 as per the Posix specification.
 
 .TP
 .B \-v\fR
-Verbose.
+Verbose. Print the names.
 
 .TP
 .B \fIcollection\fR
-is a collection/directory to use as root of the tree.
+is a collection/directory to use as root of the tree. It should be
+absolute pathname.
 
 .SH EXAMPLES
+
+.B ifind -v /snic.se/home
+will list all files under the specified directory.
+
+.B ifind -c 'ils -L' /snic.se/home
+to create a full attribute list of all files.
 
 The command 
 .B ifind -D -v -s 2 /snic.se/home
 will list all directories under home in reverse canonical order,
-finishing with the top level directory.
+finishing with the top level directory. This is suitable for example
+to delete a directory tree.
 
 To rename all files in a directory tree to have a prefix x_ you can use
 the command
