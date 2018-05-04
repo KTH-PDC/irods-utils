@@ -2,5 +2,31 @@
 
 # Empty command file for testing. Won't do stuff without -c command present.
 
+# Traps.
+function sig1()
+{
+	echo "Signal 1 received"
+	exit 1
+}
+function sig2()
+{
+	echo "Signal 2 received"
+	exit 2
+}
+function sig3()
+{
+	echo "Signal 3 received"
+	exit 3
+}
+function sig15()
+{
+	echo "Signal 15 received"
+	exit 4
+}
+trap sig1 1
+trap sig1 2
+trap sig1 3
+trap sig1 15
+
 # Not doing anything.
 exit 0

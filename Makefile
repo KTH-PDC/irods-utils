@@ -18,12 +18,14 @@ DESTDIR=/usr/local
 DESTBIN=$DESTDIR/bin
 DESTMAN=$DESTDIR/man/man1
 
+# Test directories.
+TD1=/snic.se/home/fconagy/x
+TD2=/snic.se/home/fconagy
+
 # Test output.
 LIST=iutil.list
 LF=$(LIST).files
 LD=$(LIST).dir
-TD1=/snic.se/home/fconagy/x
-TD2=/snic.se/home/fconagy
 
 # Default target.
 all: ifind

@@ -225,8 +225,8 @@ typedef struct pghandle {
 	int nfields;
 } pghandle_t;
 
-/* Our connection info block. */
-typedef struct db {
+/* Our database connection info block. */
+typedef struct dbc {
 
 	/* Database connection handle. */
 	PGconn *conn;
@@ -239,10 +239,173 @@ typedef struct db {
 
 	/* Postgres handle for files in a directory. */
 	pghandle_t *hf;
-} db_t;
+
+	/* Start and end time. */
+	time_t starttime;
+	time_t endtime;
+
+	/* Number of records seen. */
+	long long unsigned rno;
+
+	/* Number of directories. */
+	long long unsigned dno;
+
+	/* Number of files. */
+	long long unsigned fno;
+
+	/* Not UTF counted. */
+	long long unsigned nutfno;
+
+	/* Number of fetches. */
+	long long unsigned fetches;
+
+	/* Grand total size, all files under the specified directory tree. */
+	long long unsigned total;
+
+	/* Last command executed. */
+	char *last_command;
+
+	/* Last path visited. */
+	char *last_path;
+} dbc_t;
 
 /* Global variable for database info block. */
-db_t *db;
+dbc_t *dbc;
+
+/* Create database connection structure. */
+
+static dbc_t *
+create_dbc (void)
+{
+	dbc_t *r;
+
+	r = new (dbc_t);
+	r->conn = NULL;
+	r->res = NULL;
+	r->hd = NULL;
+	r->hf = NULL;
+	r->starttime = (time_t) 0;
+	r->endtime = (time_t) 0;
+	r->rno = (long long unsigned) 0;
+	r->dno = (long long unsigned) 0;
+	r->fno = (long long unsigned) 0;
+	r->nutfno = (long long unsigned) 0;
+	r->fetches = (long long unsigned) 0;
+	r->total = (long long unsigned) 0;
+	r->last_command = (char *) allocate (COMMAND_LENGTH);
+	(void) strcpy (r->last_command, "none");
+	r->last_path = (char *) allocate (PATHNAME_LENGTH);
+	(void) strcpy (r->last_path, "none");
+	return (r);
+}
+
+/* Return size string in SI units to print. */
+
+static char *
+printsize (long long unsigned total)
+{
+
+	/* Various sizes. */
+	long long unsigned kib = 1024;
+	long long unsigned mib = 1024 * kib;
+	long long unsigned gib = 1024 * mib;
+	long long unsigned tib = 1024 * gib;
+	long long unsigned pib = 1024 * tib;
+	long long unsigned eib = 1024 * pib;
+	long long unsigned zib = 1024 * eib;
+	long long unsigned yib = 1024 * zib;
+
+	/* Converted string with leeway. */
+	char cvs[24 + 4 + 1 + 64];
+
+	/* String to be returned. */
+	char *r;
+
+	/* With SI unit prefixes. */
+	if (total < kib)
+	{
+		(void) sprintf (cvs, "%24llu B", total);
+	}
+	else if (total >= kib && total < mib)
+	{
+		(void) sprintf (cvs, "%24llu KiB", total / kib);
+	}
+	else if (total >= mib && total < gib)
+	{
+		(void) sprintf (cvs, "%24llu MiB", total / mib);
+	}
+	else if (total >= gib && total < tib)
+	{
+		(void) sprintf (cvs, "%24llu GiB", total / gib);
+	}
+	else if (total >= tib && total < pib)
+	{
+		(void) sprintf (cvs, "%24llu TiB", total / tib);
+	}
+	else if (total >= pib && total < eib)
+	{
+		(void) sprintf (cvs, "%24llu PiB", total / pib);
+	}
+	else if (total >= eib && total < zib)
+	{
+		(void) sprintf (cvs, "%24llu EiB", total / eib);
+	}
+	else if (total >= zib && total < yib)
+	{
+		(void) sprintf (cvs, "%24llu ZiB", total / zib);
+	}
+	else
+	{
+		(void) sprintf (cvs, "%24llu YiB", total / yib);
+	}
+	r = strdup (cvs);
+	return (r);
+}
+
+/* Print summary. */
+
+static void
+print_summary (dbc_t *d)
+{
+
+	/* Bandwidth, bit / s. */
+	long long unsigned totalbps;
+
+	/* Total size string. */
+	char *totalsize;
+
+	/* Total speed string. */
+	char *totalspeed;
+
+	/* Duration time in seconds. */
+	long long unsigned duration;
+
+	msg ("%24llu records seen", d->rno);
+	msg ("%24llu directories", d->dno);
+	msg ("%24llu files", d->fno);
+	msg ("%24llu bytes grand total", d->total);
+	totalsize = printsize (d->total);
+	msg ("%24s grand total", totalsize);
+	if (d->nutfno > 0)
+	{
+		msg ("%24llu malformed", d->nutfno);
+	}
+	free (totalsize);
+	duration = (long long unsigned) (d->endtime - d->starttime);
+	if (duration == 0)
+	{
+		msg ("%24s %s", "n/a", "Finished in less than a second");
+	}
+	else
+	{
+		msg ("%24llu seconds duration", duration);
+		totalbps = d->total / duration;
+		msg ("%24llu bytes/s", (d->total / duration));
+		totalspeed = printsize (totalbps);
+		msg ("%24s / second", totalspeed);
+		free (totalspeed);
+	}
+}
 
 /* Issue select for directories. */
 
@@ -526,6 +689,167 @@ is_utf (char *pathname)
 	}
 }
 
+/* Maximum number of tasks. */
+#define MAX_TASKS ((int) 64)
+
+/* Task descriptor. */
+typedef struct
+{
+
+	/* Task number. */
+	int no;
+
+	/* Task PID. */
+	pid_t pid;
+
+	/* Number of commands to execute. */
+	int ncmd;
+
+	/* Next command slot. */
+	int nextcmd;
+
+	/* Array of commands. */
+	char **cmds;
+} task_t;
+
+/* Work descriptor. */
+typedef struct
+{
+
+	/* Number of tasks. */
+	int ntasks;
+
+	/* Next task slot. */
+	int nexttask;
+
+	/* Array of pointers to tasks. */
+	task_t **tasks;
+
+	/* Running indicator. */
+	int running;
+} work_t;
+
+/* Global variable, work descriptor with tasks array. */
+work_t *work = NULL;
+
+/* Initialize task descriptor with n tasks, m commands each. */
+
+static task_t **
+init_tasks (int n, int m)
+{
+	task_t **r;
+	int i;
+	int j;
+
+	/* Check. */
+	if (n > MAX_TASKS)
+	{
+		err (FAILURE, "Too many tasks (%d) maximum %d",
+			n, MAX_TASKS);
+	}
+
+	/* Create array of pointers to tasks. */
+	r = (task_t **) allocate (n * sizeof (task_t *));
+
+	/* Allocate space for the commands array in all tasks. */
+	for (i=0; i<n; i++)
+	{
+		r[i] = (task_t *) allocate (sizeof (task_t));
+		r[i]->no = i;
+		r[i]->pid = 0;
+		r[i]->ncmd = m;
+		r[i]->nextcmd = 0;
+		r[i]->cmds = (char **) allocate (m * sizeof (char *));
+		for (j=0; j<m; j++)
+		{
+			r[i]->cmds[j] = (char *) allocate (COMMAND_LENGTH);
+		}
+	}
+	return (r);
+}
+
+/* Create work descriptor. */
+
+static work_t *
+create_work (int n, int m)
+{
+	work_t *r;
+
+	r = new (work_t);
+	r->ntasks = n;
+	r->nexttask = 0;
+	r->tasks = init_tasks (n, m);
+	r->running = false;
+	return (r);
+}
+
+/* Cleaning up. Refers global variable db. */
+
+static void
+cleanup (void)
+{
+	PGresult *res;
+
+	/* Update end time. */
+	dbc->endtime = time (NULL);
+	if (dbc->endtime == (time_t) -1)
+	{
+		err (FAILURE, "Error getting end time");
+	}
+
+	/* Roll back end finish. */
+	closecursor (dbc->hf);
+	closecursor (dbc->hd);
+	res = PQexec (dbc->conn, "ROLLBACK");
+	PQclear (res);
+	PQfinish (dbc->conn);
+}
+
+/* Signal handler. */
+
+static void
+signal_handler (int signo)
+{
+	if (signo == SIGHUP || signo == SIGINT ||
+		signo == SIGQUIT || signo == SIGTERM)
+	{
+
+		/* Interrupt received, cleanup and exit. */
+		(void) fprintf (stderr, "Interrupted, cleaning up and exiting\n");
+		(void) fprintf (stderr, "Last path was: '%s'\n", dbc->last_path);
+		(void) fprintf (stderr, "Last command was: '%s'\n", dbc->last_command);
+		cleanup ();
+		print_summary (dbc);
+		exit (FAILURE);
+	}
+	else
+	{
+		(void) fprintf (stderr, "Interrupted, signal %d - confused\n", signo);
+		(void) fflush (stderr);
+	}
+}
+
+/* Establish signal handler. */
+
+static void
+siga (int s, struct sigaction *sa)
+{
+	int status;
+
+	sa->sa_handler = signal_handler;
+	status = sigemptyset (&sa->sa_mask);
+	if (status == -1)
+	{
+		err (FAILURE, "Error calling sigemptyset - confused");
+	}
+	sa->sa_flags = 0;
+	status = sigaction (s, sa, NULL);
+	if (status == -1)
+	{
+		err (FAILURE, "Error calling sigaction - confused");
+	}
+}
+
 /* Build the command using command string and pathname. */
 
 static void
@@ -637,111 +961,56 @@ do_command (char *cmd)
 	}
 	else
 	{
+
+		/* Take a note. */
+		(void) strncpy (dbc->last_command, cmd, COMMAND_LENGTH);
+
+		/* Run the command with shell. */
 		status = system (cmd);
+		if (status == -1)
+		{
+			err (FAILURE, "There was an error running '%s'", cmd);
+		}
 		if (status != 0)
 		{
 			if (! force)
 			{
-				err (FAILURE, "Command '%s' failed with status %d",
-					cmd, status);
+				(void) fprintf (stderr, "Command failed, status %d\n", status);
+				(void) fprintf (stderr, "Command was: '%s'\n", cmd);
+				(void) fflush (stderr);
+				cleanup ();
+				print_summary (dbc);
+				err (FAILURE, "Command returned nonzero status %d", status);
+			}
+			else
+			{
+
+				/* Call system ignores SIGINT and SIGQUIT so
+				   extra magic needed. */
+				if (WIFSIGNALED (status))
+				{
+					if (WTERMSIG (status) == SIGHUP ||
+						WTERMSIG (status) == SIGINT ||
+						WTERMSIG (status) == SIGQUIT ||
+						WTERMSIG (status) == SIGTERM)
+					{
+
+						/* There was an interrupt. */
+						msg ("Interrupted %s", cmd);
+						cleanup ();
+						print_summary (dbc);
+						err (FAILURE, "Interrupted with %d", status);
+					}
+				}
+				else
+				{
+					(void) fprintf (stderr, "Error %d for '%s'\n", status, cmd);
+					(void) fflush (stderr);
+				}
 			}
 		}
 	}
 	return (status);
-}
-
-/* Maximum number of tasks. */
-#define MAX_TASKS ((int) 64)
-
-/* Task descriptor. */
-typedef struct
-{
-
-	/* Task number. */
-	int no;
-
-	/* Task PID. */
-	pid_t pid;
-
-	/* Number of commands to execute. */
-	int ncmd;
-
-	/* Next command slot. */
-	int nextcmd;
-
-	/* Array of commands. */
-	char **cmds;
-} task_t;
-
-/* Work descriptor. */
-typedef struct
-{
-
-	/* Number of tasks. */
-	int ntasks;
-
-	/* Next task slot. */
-	int nexttask;
-
-	/* Array of pointers to tasks. */
-	task_t **tasks;
-
-	/* Running indicator. */
-	int running;
-} work_t;
-
-/* Global variable, work descriptor with tasks array. */
-work_t *work = NULL;
-
-/* Initialize task descriptor with n tasks, m commands each. */
-
-static task_t **
-init_tasks (int n, int m)
-{
-	task_t **r;
-	int i;
-	int j;
-
-	/* Check. */
-	if (n > MAX_TASKS)
-	{
-		err (FAILURE, "Too many tasks (%d) maximum %d",
-			n, MAX_TASKS);
-	}
-
-	/* Create array of pointers to tasks. */
-	r = (task_t **) allocate (n * sizeof (task_t *));
-
-	/* Allocate space for the commands array in all tasks. */
-	for (i=0; i<n; i++)
-	{
-		r[i] = (task_t *) allocate (sizeof (task_t));
-		r[i]->no = i;
-		r[i]->pid = 0;
-		r[i]->ncmd = m;
-		r[i]->nextcmd = 0;
-		r[i]->cmds = (char **) allocate (m * sizeof (char *));
-		for (j=0; j<m; j++)
-		{
-			r[i]->cmds[j] = (char *) allocate (COMMAND_LENGTH);
-		}
-	}
-	return (r);
-}
-
-/* Create work descriptor. */
-
-static work_t *
-create_work (int n, int m)
-{
-	work_t *r;
-
-	r = new (work_t);
-	r->ntasks = n;
-	r->nexttask = 0;
-	r->tasks = init_tasks (n, m);
-	r->running = false;
-	return (r);
 }
 
 /* Execute function in parallel. */
@@ -986,99 +1255,6 @@ execute (int ntasks, char *command, char *path)
 	}
 }
 
-/* Return size string in SI units to print. */
-
-static char *
-printsize (long long unsigned total)
-{
-
-	/* Various sizes. */
-	long long unsigned kib = 1024;
-	long long unsigned mib = 1024 * kib;
-	long long unsigned gib = 1024 * mib;
-	long long unsigned tib = 1024 * gib;
-	long long unsigned pib = 1024 * tib;
-	long long unsigned eib = 1024 * pib;
-	long long unsigned zib = 1024 * eib;
-	long long unsigned yib = 1024 * zib;
-
-	/* Converted string with leeway. */
-	char cvs[24 + 4 + 1 + 64];
-
-	/* String to be returned. */
-	char *r;
-
-	/* With SI unit prefixes. */
-	if (total < kib)
-	{
-		(void) sprintf (cvs, "%24llu B", total);
-	}
-	else if (total >= kib && total < mib)
-	{
-		(void) sprintf (cvs, "%24llu KiB", total / kib);
-	}
-	else if (total >= mib && total < gib)
-	{
-		(void) sprintf (cvs, "%24llu MiB", total / mib);
-	}
-	else if (total >= gib && total < tib)
-	{
-		(void) sprintf (cvs, "%24llu GiB", total / gib);
-	}
-	else if (total >= tib && total < pib)
-	{
-		(void) sprintf (cvs, "%24llu TiB", total / tib);
-	}
-	else if (total >= pib && total < eib)
-	{
-		(void) sprintf (cvs, "%24llu PiB", total / pib);
-	}
-	else if (total >= eib && total < zib)
-	{
-		(void) sprintf (cvs, "%24llu EiB", total / eib);
-	}
-	else if (total >= zib && total < yib)
-	{
-		(void) sprintf (cvs, "%24llu ZiB", total / zib);
-	}
-	else
-	{
-		(void) sprintf (cvs, "%24llu YiB", total / yib);
-	}
-	r = strdup (cvs);
-	return (r);
-}
-
-/* Cleaning up. Refers global variable db. */
-
-static void
-cleanup (void)
-{
-	PGresult *res;
-
-	/* Roll back end finish. */
-	closecursor (db->hf);
-	closecursor (db->hd);
-	res = PQexec (db->conn, "ROLLBACK");
-	PQclear (res);
-	PQfinish (db->conn);
-}
-
-/* Signal handler. */
-
-static void
-signal_handler (int signo)
-{
-	if (signo == SIGINT)
-	{
-
-		/* Interrupt received, cleanup and exit. */
-		(void) fprintf(stderr, "Interrupted, exiting\n");
-		cleanup ();
-		exit (FAILURE);
-	}
-}
-
 /* Print help. */
 
 static void
@@ -1158,15 +1334,8 @@ main (int argc, char *argv[])
 	/* Directory name length. */
 	size_t directory_len;
 
-	/* System call status. */
-	int status;
-
 	/* Signal action block to sigaction. */
 	struct sigaction sig;
-
-	/* Start and end time. */
-	time_t starttime;
-	time_t endtime;
 
 	/* Database connection handle. */
 	PGconn *conn;
@@ -1183,15 +1352,6 @@ main (int argc, char *argv[])
 	/* Rows and columns. */
 	int i, j;
 
-	/* Number of records seen. */
-	long long unsigned rno;
-
-	/* Number of directories. */
-	long long unsigned dno;
-
-	/* Number of files. */
-	long long unsigned fno;
-
 	/* Collection id. */
 	char *coll_id;
 
@@ -1201,32 +1361,11 @@ main (int argc, char *argv[])
 	/* File name. */
 	char *filename;
 
-	/* Path name. */
-	char *pathname;
-
-	/* Grand total size, all files under the specified directory tree. */
-	long long unsigned total;
-
 	/* File size. */
 	long long unsigned filesize;
 
-	/* Not UTF counted. */
-	long long unsigned nutfno;
-
-	/* Number of fetches. */
-	long long unsigned fetches;
-
-	/* Total size string. */
-	char *totalsize;
-
-	/* Duration time in seconds. */
-	long long unsigned duration;
-
-	/* Bandwidth, bit / s. */
-	long long unsigned totalbps;
-
-	/* Total speed string. */
-	char *totalspeed;
+	/* Path name. */
+	char *pathname;
 
 	/* Get command line switches. */
 	ch = getopt (argc, argv, options);
@@ -1420,24 +1559,18 @@ main (int argc, char *argv[])
 		err (FAILURE, "Directory name should be an absolute pathname");
 	}
 
-	/* Establish signal handler. */
-	sig.sa_handler = signal_handler;
-	status = sigaction (SIGINT, &sig, NULL);
-	if (status == -1)
-	{
-		err (FAILURE, "Error calling sigaction");
-	}
+	/* Establish signal handlers. */
+	siga (SIGHUP, &sig);
+	siga (SIGINT, &sig);
+	siga (SIGQUIT, &sig);
+	siga (SIGTERM, &sig);
 
-	/* Fill out global database info block. */
-	db = new (db_t);
-	db->conn = NULL;
-	db->res = NULL;
-	db->hd = NULL;
-	db->hf = NULL;
+	/* Create global database info block. */
+	dbc = create_dbc ();
 
 	/* Mark start. */
-	starttime = time (NULL);
-	if (starttime == (time_t) -1)
+	dbc->starttime = time (NULL);
+	if (dbc->starttime == (time_t) -1)
 	{
 		err (FAILURE, "Error getting start time");
 	}
@@ -1449,7 +1582,7 @@ main (int argc, char *argv[])
 		perr (CANTCONNECT, conn, "Cannot connect as %s",
 			connect_string);
 	}
-	db->conn = conn;
+	dbc->conn = conn;
 
 	/* Start transaction block. We are only reading, which is the default. */
 	res = pcmd (conn, "BEGIN");
@@ -1460,21 +1593,13 @@ main (int argc, char *argv[])
 
 	/* Issue Postgres select for the directory tree. */
 	hd = select_directories (conn, sort, batchsize, directory);
-	db->hd = hd;
-
-	/* Initialize counters. */
-	rno = (long long unsigned) 0;
-	dno = (long long unsigned) 0;
-	fno = (long long unsigned) 0;
-	total = (long long unsigned) 0;
-	nutfno = (long long unsigned) 0;
-	fetches = (long long unsigned) 0;
+	dbc->hd = hd;
 
 	/* Go through the directories. */
 	fetch (hd);
-	fetches++;
-	rno += (long long unsigned) hd->nrows;
-	dno += (long long unsigned) hd->nrows;
+	dbc->fetches++;
+	dbc->rno += (long long unsigned) hd->nrows;
+	dbc->dno += (long long unsigned) hd->nrows;
 	while (hd->nrows > 0)
 	{
 		for (i=0; i<(hd->nrows); i++)
@@ -1483,6 +1608,7 @@ main (int argc, char *argv[])
 			/* Collection internal id and collection name. */
 			coll_id = PQgetvalue(hd->res, i, 0);
 			dirname = PQgetvalue(hd->res, i, 1);
+			(void) strcpy (dbc->last_path, dirname);
 
 			if (dirsonly)
 			{
@@ -1499,11 +1625,11 @@ main (int argc, char *argv[])
 
 				/* Now the files in that directory. */
 				hf = select_files (conn, sort, batchsize, coll_id);
-				db->hf = hf;
+				dbc->hf = hf;
 				fetch (hf);
-				fetches++;
-				rno += (long long unsigned) hf->nrows;
-				fno += (long long unsigned) hf->nrows;
+				dbc->fetches++;
+				dbc->rno += (long long unsigned) hf->nrows;
+				dbc->fno += (long long unsigned) hf->nrows;
 				while ((hf->nrows) > 0)
 				{
 					for (j=0; j<(hf->nrows); j++)
@@ -1515,7 +1641,7 @@ main (int argc, char *argv[])
 						/* File size. */
 						filesize = (long long unsigned)
 							atol (PQgetvalue(hf->res, j, 0));
-						total += filesize;
+						dbc->total += filesize;
 
 						/* Print file info. */
 						if ((strlen (dirname) + strlen (filename) + 2) >
@@ -1526,6 +1652,7 @@ main (int argc, char *argv[])
 						(void) strcpy (pathname, dirname);
 						(void) strcat (pathname, "/");
 						(void) strcat (pathname, filename);
+						(void) strcpy (dbc->last_path, pathname);
 						if (verbose)
 						{
 							info ("%s", pathname);
@@ -1540,7 +1667,7 @@ main (int argc, char *argv[])
 
 								/* Execute command for malformed path. */
 								execute (ntasks, command, pathname);
-								nutfno++;
+								dbc->nutfno++;
 							}
 						}
 						else
@@ -1553,19 +1680,19 @@ main (int argc, char *argv[])
 
 					/* Next batch of files. */
 					fetch (hf);
-					fetches++;
-					rno += (long long unsigned) hf->nrows;
-					fno += (long long unsigned) hf->nrows;
-					show_progress (fetches);
+					dbc->fetches++;
+					dbc->rno += (long long unsigned) hf->nrows;
+					dbc->fno += (long long unsigned) hf->nrows;
+					show_progress (dbc->fetches);
 				}
 				closecursor (hf);
 			}
 		}
 		fetch (hd);
-		fetches++;
-		rno += (long long unsigned) hd->nrows;
-		dno += (long long unsigned) hd->nrows;
-		show_progress (fetches);
+		dbc->fetches++;
+		dbc->rno += (long long unsigned) hd->nrows;
+		dbc->dno += (long long unsigned) hd->nrows;
+		show_progress (dbc->fetches);
 	}
 	closecursor (hd);
 	free (pathname);
@@ -1582,8 +1709,8 @@ main (int argc, char *argv[])
 	res = pcmd (conn, "END");
 	PQclear (res);
 	PQfinish (conn);
-	endtime = time (NULL);
-	if (endtime == (time_t) -1)
+	dbc->endtime = time (NULL);
+	if (dbc->endtime == (time_t) -1)
 	{
 		err (FAILURE, "Error getting end time");
 	}
@@ -1591,31 +1718,7 @@ main (int argc, char *argv[])
 	{
 
 		/* Print summary. */
-		msg ("%24llu records seen", rno);
-		msg ("%24llu directories", dno);
-		msg ("%24llu files", fno);
-		msg ("%24llu bytes grand total", total);
-		totalsize = printsize (total);
-		msg ("%24s grand total", totalsize);
-		if (nutfno > 0)
-		{
-			msg ("%24llu malformed", nutfno);
-		}
-		free (totalsize);
-		duration = (long long unsigned) (endtime - starttime);
-		if (duration == 0)
-		{
-			msg ("%24s %s", "n/a", "Finished in less than a second");
-		}
-		else
-		{
-			msg ("%24llu seconds duration", duration);
-			totalbps = total / duration;
-			msg ("%24llu bytes/s", (total / duration));
-			totalspeed = printsize (totalbps);
-			msg ("%24s / second", totalspeed);
-			free (totalspeed);
-		}
+		print_summary (dbc);
 	}
 	exit (SUCCESS);
 } 
