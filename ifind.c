@@ -61,6 +61,9 @@ static int verbose = false;
 /* Progress indicator. */
 static int progress = 0;
 
+/* Persistent retry. */
+static int retry = false;
+
 /* Print summary. */
 static int summary = false;
 
@@ -940,7 +943,76 @@ build_command (char *cmd, char *cmds, char *pathname)
 	}
 }
 
-/* Run command. */
+/* Run command with retry. */
+
+int
+run_command (int retries, int period, char *cmd)
+{
+	int status;
+	int nretries;
+	int unslept;
+
+	if (retries <= 0)
+	{
+
+		/* Won't retry. Fail out when there was an error. */
+		status = system (cmd);
+		if (status == -1)
+		{
+
+			/* The system library function failed. */
+			err (FAILURE, "There was a system error running '%s'", cmd);
+		}
+		else
+		{
+			if (status != 0)
+			{
+
+				/* Non-zero returned from the command. */
+				err (FAILURE, "Error %d running '%s'", status, cmd);
+			}
+
+			/* No error, status is 0, finish here. */
+		}
+	}
+	else
+	{
+
+		/* Retry, there was an error. */
+		nretries = retries;
+		while (nretries > 0 && status != 0)
+		{
+
+			/* Wait. */
+			unslept = sleep (period);
+			if (unslept != 0)
+			{
+				err (FAILURE, "There was an error sleeping for '%s'", cmd);
+			}
+
+			/* Retry. */
+			status = system (cmd);
+			if (status == -1)
+			{
+				err (FAILURE, "There was a system error running '%s'", cmd);
+			}
+			else if (status != 0)
+			{
+
+				/* Non-zero returned from the command. */
+				msg ("Error %d retrying '%s'", status, cmd);
+			}
+		}
+
+		/* Still failing after retries. */
+		msg ("Command '%s' still failing after %d retries", cmd, retries);
+	}
+
+	/* Finish, with or without retries with the status of the last run. */
+	return (status);
+}
+
+/* Do command. */
 
 static int
 do_command (char *cmd)
@@ -966,7 +1038,16 @@ do_command (char *cmd)
 		(void) strncpy (dbc->last_command, cmd, COMMAND_LENGTH);
 
 		/* Run the command with shell. */
-		status = system (cmd);
+		if (retry)
+		{
+
+			/* Retry three times after waiting for 59 seconds. */
+			status = run_command (3, 59, cmd);
+		}
+		else
+		{
+			status = run_command (0, 0, cmd);
+		}
 		if (status == -1)
 		{
 			err (FAILURE, "There was an error running '%s'", cmd);
@@ -1282,6 +1363,7 @@ where\n\
     -n n            number of parallel worker tasks.\n\
     -p n            show progress indicator for every n files.\n\
     -q              set quiet.\n\
+    -r              retry failed command 3 times after waiting for a minute.\n\
     -s type         set sort type, 0 for no sort, 1 ascending, 2 descending.\n\
                     The default is not to sort.\n\
     -t              test, print command string.\n\
@@ -1299,7 +1381,7 @@ main (int argc, char *argv[])
 {
 
 	/* Option string. */
-	char *options = "hC:DSb:c:d:fn:p:qs:tu:v";
+	char *options = "hC:DSb:c:d:fn:p:qrs:tu:v";
 
 	/* Getopt option. */
 	int ch;
@@ -1425,6 +1507,9 @@ main (int argc, char *argv[])
 			break;
 		case 'q':
 			quiet = true;
+			break;
+		case 'r':
+			retry = true;
 			break;
 		case 's':
 			sort = atoi (optarg);

@@ -15,10 +15,10 @@ ifind \- iRODS find utility
 .B [ \-n\ \fIn\fR ]
 .B [ \-p\ \fIn\fR ]
 .B [ \-q ]
+.B [ \-r ]
 .B [ \-s\ \fItype\fR ]
 .B [ \-S ]
 .B [ \-v ]
-.B [ \-p\ \fIpattern\fR ]
 .B \fIcollection\fR
 
 .SH DESCRIPTION
@@ -65,7 +65,7 @@ Alternatively a printf string with '%s' markers can be
 supplied, in which case the markers will be replaced with
 the pathname, just like with printf. Only four of these can
 be specified. It is best to supply this string using single
-quotes since it probably will contain spaces.
+quotes around the %s since it probably will contain spaces.
 
 .TP
 .B \-d \fIlevel\fR
@@ -86,11 +86,17 @@ the same time.
 
 .TP
 .B \-p \fIn\fR
-progress indicator, print a dot for each n files as processed.
+progress indicator, print a dot for every \fIn\fR database fetch as processed.
+One fetch returns \fIbatchsize\fR records, sometimes less at the end so it is
+approximate.
 
 .TP
 .B \-q\fR
 Quiet.
+
+.TP
+.B \-r\fR
+Retry failed command three times after waiting for a minute.
 
 .TP
 .B \-s \fItype\fR
@@ -139,5 +145,8 @@ the command
 .B ifind -c \(dqimv '%s' 'x_%s'\(dq /snic.se/home/user00
 It might be a good idea to single quote the file names in case they include
 spaces.
+
+Note that quotes in file names are not allowed and will cause an error
+message to be displayed.
 
 
