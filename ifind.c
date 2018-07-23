@@ -68,10 +68,22 @@ static int retry = false;
 static int summary = false;
 
 /* Test, print command string only. */
-int test = false;
+static int test = false;
 
 /* Continue when command fails. */
-int force = false;
+static int force = false;
+
+/* Will quit after this many failures. */
+static int max_retry_failures = 32768;
+
+/* Number of retries in one go. */
+static int max_retries = 3;
+
+/* Delay after a retry. */
+static int delay_retry = 59;
+
+/* Counter for retries. Will count down from maximum value. */
+static int retry_failures = 0;
 
 /* Error exit. */
 
@@ -973,6 +985,7 @@ run_command (int retries, int period, char *cmd)
 			}
 
 			/* No error, status is 0, finish here. */
+			return (0);
 		}
 	}
 	else
@@ -996,15 +1009,30 @@ run_command (int retries, int period, char *cmd)
 			{
 				err (FAILURE, "There was a system error running '%s'", cmd);
 			}
-			else if (status != 0)
+			else
 			{
+				if (status != 0)
+				{
 
-				/* Non-zero returned from the command. */
-				msg ("Error %d retrying '%s'", status, cmd);
+					/* Non-zero returned from the command. */
+					msg ("Error %d retrying '%s'", status, cmd);
+					if (retry_failures >= max_retry_failures)
+					{
+
+						/* Reached the limit. */
+						err (FAILURE,
+							"There were more than %d command retries - abort",
+							max_retry_failures);
+					}
+					retry_failures++;
+				}
+
+				/* We got zero status. */
+				return (0);
 			}
 		}
 
-		/* Still failing after retries. */
+		/* Still failing after so many retries. */
 		msg ("Command '%s' still failing after %d retries", cmd, retries);
 	}
 
@@ -1363,7 +1391,8 @@ where\n\
     -n n            number of parallel worker tasks.\n\
     -p n            show progress indicator for every n files.\n\
     -q              set quiet.\n\
-    -r              retry failed command 3 times after waiting for a minute.\n\
+    -r n,w,m        retry failed command n times after waiting for w seconds,\n\
+                    allow m retries all in all\n\
     -s type         set sort type, 0 for no sort, 1 ascending, 2 descending.\n\
                     The default is not to sort.\n\
     -t              test, print command string.\n\
@@ -1381,7 +1410,7 @@ main (int argc, char *argv[])
 {
 
 	/* Option string. */
-	char *options = "hC:DSb:c:d:fn:p:qrs:tu:v";
+	char *options = "hC:DSb:c:d:fn:p:qr:s:tu:v";
 
 	/* Getopt option. */
 	int ch;
@@ -1397,6 +1426,14 @@ main (int argc, char *argv[])
 
 	/* Sort type. */
 	int sort = 0;
+
+	/* State from strtok call. */
+	char *state;
+
+	/* Retry, delay, max retry. */
+	int rtr;
+	int dly;
+	int mrt;
 
 	/* Command to execute for all files. */
 	char *command = NULL;
@@ -1510,6 +1547,21 @@ main (int argc, char *argv[])
 			break;
 		case 'r':
 			retry = true;
+
+			/* Get three numbers, separated by comma. */
+			rtr = atoi (strtok_r (optarg, ",", &state));
+			dly = atoi (strtok_r (NULL, ",", &state));
+			mrt = atoi (strtok_r (NULL, ",", &state));
+			if (rtr <= 0 || dly <= 0 || mrt <= 0)
+			{
+				err (FAILURE, "Wrong specification for retries");
+			}
+
+			/* Maximum retries in one go, delay in seconds and
+			   all in all number of retries allowed. */
+			max_retries = rtr;
+			delay_retry = dly;
+			max_retry_failures = mrt;
 			break;
 		case 's':
 			sort = atoi (optarg);
@@ -1603,6 +1655,13 @@ main (int argc, char *argv[])
 		if (quiet)
 		{
 			msg ("Quiet is on");
+		}
+		if (retry)
+		{
+			msg ("Retry enabled");
+			msg ("Number of retries is %d", max_retries);
+			msg ("Delay is %d seconds", delay_retry);
+			msg ("Maximum retry failures allowed is %d", max_retry_failures);
 		}
 		if (test)
 		{
