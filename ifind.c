@@ -61,6 +61,9 @@ static int verbose = false;
 /* Progress indicator. */
 static int progress = 0;
 
+/* Replica number. Signal no preferred replica as default. */
+static char *replica = NULL;
+
 /* Persistent retry. */
 static int retry = false;
 
@@ -494,6 +497,18 @@ r_coll_main WHERE coll_name LIKE '%s'";
 	{
 		strcat (colls_cmd,  " ORDER BY coll_name DESC");
 	}
+	else if (sorted == 3)
+	{
+
+		/* Directories are always unique. */
+		strcat (colls_cmd,  " ORDER BY coll_name ASC");
+	}
+	else if (sorted == 4)
+	{
+
+		/* Directories are always unique. */
+		strcat (colls_cmd,  " ORDER BY coll_name DESC");
+	}
 	else
 	{
 		err (FAILURE, "Wrong sort option %d", sorted);
@@ -561,8 +576,22 @@ select_files (PGconn *conn, int sorted, int fetchcount,
 	r = new (pghandle_t);
 
 	/* Build sprintf string to create select statement. */
-	files_select = "DECLARE d CURSOR FOR SELECT data_size,data_name \
+	if (sorted == 3 || sorted == 4)
+	{
+
+		/* Unique file names. */
+		files_select =
+			"DECLARE d CURSOR FOR SELECT DISTINCT ON (data_name) \
+data_size,data_name \
 FROM r_data_main WHERE coll_id=%s";
+	}
+	else
+	{
+
+		/* Default case, show all matches. There will be replicas. */
+		files_select = "DECLARE d CURSOR FOR SELECT data_size,data_name \
+FROM r_data_main WHERE coll_id=%s";
+	}
 	files_len = (size_t) (strlen (files_select) +
 		strlen(directory));
 
@@ -572,6 +601,17 @@ FROM r_data_main WHERE coll_id=%s";
 
 	/* Create SQL statement. */
 	(void) sprintf (files_cmd, files_select, directory);
+
+	/* Add replica clause if specified. The replica number is actually
+	   a string! */
+	if (replica != NULL)
+	{
+
+		/* Replica number was specified. */
+		strcat (files_cmd, " AND DATA_REPL_NUM = '");
+		strcat (files_cmd, replica);
+		strcat (files_cmd, "'");
+	}
 
 	/* Add sort clause if specified. */
 	if (sorted == 0)
@@ -583,6 +623,14 @@ FROM r_data_main WHERE coll_id=%s";
 		strcat (files_cmd,  " ORDER BY data_name ASC");
 	}
 	else if (sorted == 2)
+	{
+		strcat (files_cmd,  " ORDER BY data_name DESC");
+	}
+	else if (sorted == 3)
+	{
+		strcat (files_cmd,  " ORDER BY data_name ASC");
+	}
+	else if (sorted == 4)
 	{
 		strcat (files_cmd,  " ORDER BY data_name DESC");
 	}
@@ -1391,9 +1439,11 @@ where\n\
     -n n            number of parallel worker tasks.\n\
     -p n            show progress indicator for every n files.\n\
     -q              set quiet.\n\
-    -r n,w,m        retry failed command n times after waiting for w seconds,\n\
+    -r n            replica number, the default is all replicas\n\
+    -R n,w,m        retry failed command n times after waiting for w seconds,\n\
                     allow m retries all in all\n\
     -s type         set sort type, 0 for no sort, 1 ascending, 2 descending.\n\
+                    3 ascending unique, 4 descending unique.\n\
                     The default is not to sort.\n\
     -t              test, print command string.\n\
     -u locale       check pathname according to specified locale.\n\
@@ -1410,7 +1460,7 @@ main (int argc, char *argv[])
 {
 
 	/* Option string. */
-	char *options = "hC:DSb:c:d:fn:p:qr:s:tu:v";
+	char *options = "hC:DSR:b:c:d:fn:p:qr:s:tu:v";
 
 	/* Getopt option. */
 	int ch;
@@ -1546,6 +1596,17 @@ main (int argc, char *argv[])
 			quiet = true;
 			break;
 		case 'r':
+			replica = optarg;
+			if (strtol (replica, (char **) NULL, 10) < 0)
+			{
+				err (FAILURE, "Wrong number for replica");
+			}
+			if (errno == EINVAL || errno == ERANGE)
+			{
+				err (FAILURE, "Conversion error for replica number");
+			}
+			break;
+		case 'R':
 			retry = true;
 
 			/* Get three numbers, separated by comma. */
@@ -1662,6 +1723,10 @@ main (int argc, char *argv[])
 			msg ("Number of retries is %d", max_retries);
 			msg ("Delay is %d seconds", delay_retry);
 			msg ("Maximum retry failures allowed is %d", max_retry_failures);
+		}
+		if (replica != NULL)
+		{
+			msg ("Replica is %s", replica);
 		}
 		if (test)
 		{
