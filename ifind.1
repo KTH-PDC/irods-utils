@@ -15,7 +15,7 @@ ifind \- iRODS find utility
 .B [ \-n\ \fIn\fR ]
 .B [ \-p\ \fIn\fR ]
 .B [ \-q ]
-.B [ \-r ]
+.B [ \-R \fIn,w,m\fR ]
 .B [ \-s\ \fItype\fR ]
 .B [ \-S ]
 .B [ \-v ]
@@ -95,13 +95,19 @@ approximate.
 Quiet.
 
 .TP
-.B \-r \fIn,w,m\fR
+.B \-r \fIn\fR
+Replica number. The default is all replicas.
+
+.TP
+.B \-R \fIn,w,m\fR
 Retry failed command \fIn\fR times after waiting for \fIw\fR seconds,
 allowed \fIm\fR max tries all in all.
 
 .TP
 .B \-s \fItype\fR
-Sort type, 0 for no sort, 1 for ascending, 2 for descending.
+Sort type, 0 for no sort, 1 for ascending, 2 for descending,
+3 for ascending unique, 4 for descending unique. (Note that
+files with replicas are returned as multiple rows.)
 
 .TP
 .B \-S\fR
