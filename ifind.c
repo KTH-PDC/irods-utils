@@ -1410,6 +1410,17 @@ execute (int ntasks, char *command, char *path)
 			status = do_command (cs);
 		}
 	}
+	else
+	{
+
+		/* No command specified so we print the pathname.
+		   Also we should run only one task (garbled output). */
+		if (ntasks > 0 )
+		{
+			err (FAILURE, "Cannot multitask when no command was specified");
+		}
+		msg (path);
+	}
 }
 
 /* Print help. */
@@ -1433,7 +1444,7 @@ where\n\
     -b batchsize    is the number of rows to process in one go.\n\
                     The default is 1024.\n\
     -c command      is the command to execute for all files/directories.\n\
-                    Quoted string. There is no default.\n\
+                    Quoted string. The default is to print the pathname.\n\
     -d level        set the debug level, greater for more details.\n\
     -f              force, continue when the command returns non-zero status.\n\
     -n n            number of parallel worker tasks.\n\
@@ -1563,6 +1574,10 @@ main (int argc, char *argv[])
 			break;
 		case 'c':
 			command = optarg;
+			if (command == NULL)
+			{
+				err (FAILURE, "No argument for command");
+			}
 			if (strlen (command) == 0)
 			{
 				err (FAILURE, "Wrong argument for command");

@@ -65,7 +65,10 @@ Alternatively a printf string with '%s' markers can be
 supplied, in which case the markers will be replaced with
 the pathname, just like with printf. Only four of these can
 be specified. It is best to supply this string using single
-quotes around the %s since it probably will contain spaces.
+quotes around the %s since it might contain spaces.
+The default is to print the full pathname, in this case
+multitasking is not allowed since it would result in garbled
+output.
 
 .TP
 .B \-d \fIlevel\fR
