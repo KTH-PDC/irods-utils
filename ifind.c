@@ -64,6 +64,9 @@ static int progress = 0;
 /* Replica number. Signal no preferred replica as default. */
 static char *replica = NULL;
 
+/* Resource. */
+static char *resource = NULL;
+
 /* Persistent retry. */
 static int retry = false;
 
@@ -601,6 +604,14 @@ FROM r_data_main WHERE coll_id=%s";
 
 	/* Create SQL statement. */
 	(void) sprintf (files_cmd, files_select, directory);
+
+	/* Add resource clause when needed. */
+	if (resource != NULL)
+	{
+		strcat (files_cmd, " AND RESC_NAME = '");
+		strcat (files_cmd, resource);
+		strcat (files_cmd, "'");
+	}
 
 	/* Add replica clause if specified. The replica number is actually
 	   a string! */
@@ -1440,6 +1451,7 @@ where\n\
     -D              Select directories/collections only.\n\
                     In this case files will not be listed.\n\
                     The default is to list files.\n\
+    -E              resource.\n\
     -S              print summary.\n\
     -b batchsize    is the number of rows to process in one go.\n\
                     The default is 1024.\n\
@@ -1471,7 +1483,7 @@ main (int argc, char *argv[])
 {
 
 	/* Option string. */
-	char *options = "hC:DSR:b:c:d:fn:p:qr:s:tu:v";
+	char *options = "hC:DE:R:Sb:c:d:fn:p:qr:s:tu:v";
 
 	/* Getopt option. */
 	int ch;
@@ -1562,6 +1574,27 @@ main (int argc, char *argv[])
 		case 'D':
 			dirsonly = true;
 			break;
+		case 'E':
+			resource = optarg;
+			break;
+		case 'R':
+			retry = true;
+
+			/* Get three numbers, separated by comma. */
+			rtr = atoi (strtok_r (optarg, ",", &state));
+			dly = atoi (strtok_r (NULL, ",", &state));
+			mrt = atoi (strtok_r (NULL, ",", &state));
+			if (rtr <= 0 || dly <= 0 || mrt <= 0)
+			{
+				err (FAILURE, "Wrong specification for retries");
+			}
+
+			/* Maximum retries in one go, delay in seconds and
+			   all in all number of retries allowed. */
+			max_retries = rtr;
+			delay_retry = dly;
+			max_retry_failures = mrt;
+			break;
 		case 'S':
 			summary = true;
 			break;
@@ -1576,7 +1609,7 @@ main (int argc, char *argv[])
 			command = optarg;
 			if (command == NULL)
 			{
-				err (FAILURE, "No argument for command");
+				err (FAILURE, "No argument for command - confused");
 			}
 			if (strlen (command) == 0)
 			{
@@ -1620,24 +1653,6 @@ main (int argc, char *argv[])
 			{
 				err (FAILURE, "Conversion error for replica number");
 			}
-			break;
-		case 'R':
-			retry = true;
-
-			/* Get three numbers, separated by comma. */
-			rtr = atoi (strtok_r (optarg, ",", &state));
-			dly = atoi (strtok_r (NULL, ",", &state));
-			mrt = atoi (strtok_r (NULL, ",", &state));
-			if (rtr <= 0 || dly <= 0 || mrt <= 0)
-			{
-				err (FAILURE, "Wrong specification for retries");
-			}
-
-			/* Maximum retries in one go, delay in seconds and
-			   all in all number of retries allowed. */
-			max_retries = rtr;
-			delay_retry = dly;
-			max_retry_failures = mrt;
 			break;
 		case 's':
 			sort = atoi (optarg);
@@ -1738,6 +1753,10 @@ main (int argc, char *argv[])
 			msg ("Number of retries is %d", max_retries);
 			msg ("Delay is %d seconds", delay_retry);
 			msg ("Maximum retry failures allowed is %d", max_retry_failures);
+		}
+		if (resource != NULL)
+		{
+			msg ("Resource is %s", resource);
 		}
 		if (replica != NULL)
 		{
