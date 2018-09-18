@@ -9,6 +9,7 @@ The files in this directory are:
   README            this readme file
   ifind.c           C source file for the ifind utility
   ifind.1           Manual page for the ifind utility
+  nullcmd           Test script
 
 The ifind utility is a bit similar to the traditional find
 command in Unix.

@@ -57,37 +57,61 @@ test: ifind
 	-./ifind /nonexistent
 	-./ifind -C "dbname=NODB user=nouser" '/snic.se/test'
 	-./ifind -h
+	./ifind $(TD1) >$(LF)
 	./ifind -v $(TD1) >$(LF)
 	./ifind -v -D $(TD1) >$(LD)
+	echo "========" >>$(LIST)
 	./ifind -d 99 $(TD1) >>$(LIST)
+	echo "========" >>$(LIST)
+	./ifind -d 99 $(TD1) -R 3,59,1024
+	echo "========" >>$(LIST)
 	./ifind -d 5 $(TD1) >>$(LIST)
+	echo "========" >>$(LIST)
 	./ifind -v -s 1 $(TD1) >>$(LIST)
 	./ifind -v -s 2 $(TD1) >>$(LIST)
-	-./ifind -v -s 3 $(TD1)
+	echo "======== -s 3" >>$(LIST)
+	./ifind -v -s 3 $(TD1) >>$(LIST)
+	echo "======== -s 4" >>$(LIST)
+	./ifind -v -s 4 $(TD1) >>$(LIST)
+	echo "======== -s 5 and 6 should fail" >>$(LIST)
+	-./ifind -v -s 5 $(TD1)
+	-./ifind -v -s 6 $(TD1)
 	./ifind -c 'echo' $(TD1) >$(LF).1
 	diff $(LF) $(LF).1
 	rm $(LF).1
 	./ifind -D -c 'echo' $(TD1) >$(LD).1
 	diff $(LD) $(LD).1
 	rm $(LD).1
+	echo "========" >>$(LIST)
 	./ifind -d 99 -c "echo xxxx '%s' 'x%s'" $(TD1) >>$(LIST)
+	echo "========" >>$(LIST)
 	./ifind -S $(TD1) >>$(LIST)
+	echo "========" >>$(LIST)
 	./ifind -S -D $(TD1) >>$(LIST)
+	echo "========" >>$(LIST)
 	./ifind -S -u en_US.UTF8 $(TD2)
 	./ifind -S -u C $(TD2) >>$(LIST)
+	echo "========" >>$(LIST)
 	./ifind -S -u C $(TD2) >>$(LIST)
+	echo "========" >>$(LIST)
 	echo "Number of directories" >>$(LIST)
 	./ifind -D -v $(TD1) | wc -l >>$(LIST)
 	./ifind -D -c echo $(TD1) | wc -l >>$(LIST)
 	echo "Number of files" >>$(LIST)
 	./ifind -v $(TD1) | wc -l >>$(LIST)
 	./ifind -c echo $(TD1) | wc -l >>$(LIST)
+	echo "========" >>$(LIST)
 	echo "Parallel" >>$(LIST)
+	echo "========" >>$(LIST)
 	./ifind -S -n 4 -c echo $(TD1) >>$(LIST)
+	echo "========" >>$(LIST)
 	./ifind -S -n 32 -c echo $(TD1) >>$(LIST)
+	echo "========" >>$(LIST)
 	./ifind -S -n 4 -b 32 -c echo $(TD1) >>$(LIST)
+	echo "========" >>$(LIST)
 	./ifind -d 99 -S -n 4 -b 32 -c ./nullcmd $(TD1) | \
  egrep -v -e 'Running command|Build' >>$(LIST)
+	./ifind -v -E demoResc $(TD1)
 	echo "Tests finished check $(LIST)"
 
 # Distribution kit.
