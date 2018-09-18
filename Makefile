@@ -58,8 +58,8 @@ test: ifind
 	-./ifind -C "dbname=NODB user=nouser" '/snic.se/test'
 	-./ifind -h
 	./ifind $(TD1) >$(LF)
-	./ifind -v $(TD1) >$(LF)
-	./ifind -v -D $(TD1) >$(LD)
+	./ifind -s 3 $(TD1) >$(LF)
+	./ifind -s 3 -D $(TD1) >$(LD)
 	echo "========" >>$(LIST)
 	./ifind -d 99 $(TD1) >>$(LIST)
 	echo "========" >>$(LIST)
@@ -76,10 +76,10 @@ test: ifind
 	echo "======== -s 5 and 6 should fail" >>$(LIST)
 	-./ifind -v -s 5 $(TD1)
 	-./ifind -v -s 6 $(TD1)
-	./ifind -c 'echo' $(TD1) >$(LF).1
+	./ifind -s 3 -q -c 'echo' $(TD1) >$(LF).1
 	diff $(LF) $(LF).1
 	rm $(LF).1
-	./ifind -D -c 'echo' $(TD1) >$(LD).1
+	./ifind -D -s 3 -q -c 'echo' $(TD1) >$(LD).1
 	diff $(LD) $(LD).1
 	rm $(LD).1
 	echo "========" >>$(LIST)
@@ -92,14 +92,12 @@ test: ifind
 	./ifind -S -u en_US.UTF8 $(TD2)
 	./ifind -S -u C $(TD2) >>$(LIST)
 	echo "========" >>$(LIST)
-	./ifind -S -u C $(TD2) >>$(LIST)
-	echo "========" >>$(LIST)
 	echo "Number of directories" >>$(LIST)
 	./ifind -D -v $(TD1) | wc -l >>$(LIST)
-	./ifind -D -c echo $(TD1) | wc -l >>$(LIST)
+	./ifind -D -q -c echo $(TD1) | wc -l >>$(LIST)
 	echo "Number of files" >>$(LIST)
 	./ifind -v $(TD1) | wc -l >>$(LIST)
-	./ifind -c echo $(TD1) | wc -l >>$(LIST)
+	./ifind -q -c echo $(TD1) | wc -l >>$(LIST)
 	echo "========" >>$(LIST)
 	echo "Parallel" >>$(LIST)
 	echo "========" >>$(LIST)
