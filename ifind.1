@@ -8,6 +8,9 @@ ifind \- iRODS find utility
 .B [ \-h ]
 .B [ \-C\ \fIconnection\fR ]
 .B [ \-D ]
+.B [ \-E\ \fIresource\fR ]
+.B [ \-X\ \fIregexp\fR ]
+.B [ \-Y\ \fIsubst\fR ]
 .B [ \-b\ \fIbatchsize\fR ]
 .B [ \-c\ \fIcommand\fR ]
 .B [ \-d\ \fIlevel\fR ]
@@ -55,6 +58,14 @@ Print directory names (collections) only. The default is to print file names.
 .TP
 .B \-E \fIresource\fR
 Resource name to select.
+
+.TP
+.B \-X \fIregexp\fR
+Select files or directories with matching POSIX regexp pattern.
+
+.TP
+.B \-Y \fIregexp\fR
+Substitute regexp match with this string.
 
 .TP
 .B \-b \fIbatchsize\fR

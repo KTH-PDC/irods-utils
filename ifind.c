@@ -16,6 +16,7 @@
 #include <time.h>
 #include <locale.h>
 #include <xlocale.h>
+#include <regex.h>
 
 /* Postgres includes. Requires Postgres development packages. */
 #include "libpq-fe.h"
@@ -60,6 +61,15 @@ static int verbose = false;
 
 /* Progress indicator. */
 static int progress = 0;
+
+/* Regexp. */
+static char *regexp = NULL;
+
+/* Regexp compiled. */
+static regex_t *rxc = NULL;
+
+/* Regexp substitution. */
+static char *regexpsubst = NULL;
 
 /* Replica number. Signal no preferred replica as default. */
 static char *replica = NULL;
@@ -170,6 +180,166 @@ allocate (size_t s)
 
 /* Macro to allocate memory. */
 #define new(t) ((t *) allocate (sizeof (t)))
+
+/* POSIX regexp compare to compiled re string. */
+
+static int
+rmatch (char *s)
+{
+	int r;
+
+	/* Match using global rxc. */
+	r = regexec (rxc, s, 0, NULL, 0);
+	if (r == 0)
+	{
+
+		/* Match. */
+		return (true);
+	}
+	else if (r == REG_NOMATCH)
+	{
+
+		/* Did not match. */
+		return (false);
+	}
+	else
+	{
+
+		/* Other error. */
+		err (FAILURE, "Function regexec failed with %d", r);
+	}
+
+	/* Never reached. */
+	return (false);
+}
+
+/* Regexp substitute. Overwrites result with substituted. */
+
+static void
+rsubs (char *result, char *s, char *rs)
+{
+	char *op;
+	char *ip;
+	size_t slen;
+	size_t rlen;
+	size_t len;
+	size_t nmatch;
+	regmatch_t pmatch[1];
+	int status;
+	regoff_t rstart;
+	regoff_t rend;
+
+	/* Assign input and output pointers. */
+	op = result;
+	ip = s;
+
+	/* Length for orgininal string and substitution. */
+	slen = strlen (s);
+	rlen = strlen (rs);
+
+	/* No parenthesized subexpressions, we got only one element. */
+	nmatch = (size_t) 1;
+	status = regexec (rxc, s, nmatch, pmatch, 0);
+	if (status == 0)
+	{
+
+		/* Start and end offsets, with checks. */
+		rstart = pmatch[0].rm_so;
+		if (rstart == (regoff_t) -1)
+		{
+			err (FAILURE, "No match, rstart is -1 - confused");
+		}
+		rend = pmatch[0].rm_eo;
+
+		/* Check destination size. */
+		if ((slen - ((size_t) rend - (size_t) rstart) + rlen + 1) >=
+			PATHNAME_LENGTH)
+		{
+			err (FAILURE, "Does not fit substituted '%s' - confused", s);
+		}
+
+		/* We got start and end offset, debug print. */
+		if (debug > 10)
+		{
+			msg ("%d %d '%s' '%s' '%s'", rstart, rend, result, s, rs);
+		}
+
+		/* Copy first part of the string. */
+		len = (size_t) rstart;
+		memcpy (op, ip, len);
+		ip += len;
+		op += len;
+
+		/* Second part is the substitution. */
+		len = rlen;
+		memcpy (op, rs, len);
+		ip += (size_t) rend - (size_t) rstart;
+		op += len;
+
+		/* Third part is the rest. */
+		len = slen - ((size_t) (rend));
+		memcpy (op, ip, len);
+
+		/* Print substituted string. */
+		if (debug > 10)
+		{
+			msg ("%d %d '%s' '%s' '%s'", rstart, rend, result, s, rs);
+		}
+	}
+	else
+	{
+
+		/* We've had a match already when here so this is impossible. */
+		err (FAILURE, "Function regexec returned nonzero %d - confused",
+			status);
+	}
+}
+
+/* Print pathname when regexp matches. */
+
+static void
+rinfopath (char *pathname)
+{
+
+	/* This is pathname with substitutions. */
+	char r[PATHNAME_LENGTH];
+
+	if (regexp != NULL)
+	{
+
+		/* Print when there is a match. */
+		if (rmatch (pathname))
+		{
+			if (regexpsubst != NULL)
+			{
+
+				/* All EOS. */
+				memset (r, 0, (size_t) PATHNAME_LENGTH);
+
+				/* Do substitutions. */
+				rsubs (r, pathname, regexpsubst);
+
+				/* Overwrite pathname. */
+				(void) strncpy (pathname, r, PATHNAME_LENGTH);
+
+				/* Print eventually the substituted pathname. */
+				info ("%s", pathname);
+			}
+			else
+			{
+
+				/* No substitution, regexp match, print name. */
+				info ("%s", pathname);
+			}
+		}
+	}
+	else
+	{
+
+		/* No regexp print always. */
+		info ("%s", pathname);
+	}
+}
 
 /* Postgres error exit. */
 
@@ -1408,6 +1578,15 @@ execute (int ntasks, char *command, char *path)
 	char cs[COMMAND_LENGTH];
 	int status;
 
+	/* Skip when the path does not match regexp. */
+	if (regexp != NULL)
+	{
+		if (! rmatch (path))
+		{
+			return;
+		}
+	}
+
 	/* NOP when no command was specified. */
 	if (command != NULL)
 	{
@@ -1443,7 +1622,10 @@ print_help (void)
 This program is like the find utility, for iRODS.\n\
 Processes a directory tree and executes a command for each file/collection.\n\
 Usage:\n\
-    find [-b batchsize][-c connection][-d level][-h] collection\n\
+    find [-h][-C connection][-D][-E resource][-S][-X regexp]\n\
+        [-b batchsize][-d level][-f][-n n]\n\
+        [-p n][-q][-r n][-s type][-t][-u locale][-v]\n\
+        collection\n\
 where\n\
     -h              prints this help\n\
     -C connection   is the connect details for the database. Quoted string.\n\
@@ -1453,6 +1635,8 @@ where\n\
                     The default is to list files.\n\
     -E              resource.\n\
     -S              print summary.\n\
+    -X regexp       Match regexp.\n\
+    -Y substitute   Substitute matching regexp with this.\n\
     -b batchsize    is the number of rows to process in one go.\n\
                     The default is 1024.\n\
     -c command      is the command to execute for all files/directories.\n\
@@ -1482,8 +1666,11 @@ int
 main (int argc, char *argv[])
 {
 
+	/* Status code. */
+	int status;
+
 	/* Option string. */
-	char *options = "hC:DE:R:Sb:c:d:fn:p:qr:s:tu:v";
+	char *options = "hC:DE:R:SX:Y:b:c:d:fn:p:qr:s:tu:v";
 
 	/* Getopt option. */
 	int ch;
@@ -1597,6 +1784,33 @@ main (int argc, char *argv[])
 			break;
 		case 'S':
 			summary = true;
+			break;
+		case 'X':
+			regexp = optarg;
+
+			/* Compile (and check) regular expression into global. */
+			rxc = new (regex_t);
+			status = regcomp (rxc, regexp, REG_EXTENDED);
+			if (status != 0)
+			{
+				err (FAILURE, "Wrong POSIX regular expression '%s'", regexp);
+			}
+			if (rxc->re_nsub != (size_t) 0)
+			{
+				err (FAILURE, "Cannot do parenthesized subexpressions %s",
+					regexp);
+			}
+			break;
+		case 'Y':
+
+			/* Substitution is specified with regexp. */
+			regexpsubst = optarg;
+			if (regexp == NULL)
+			{
+
+				/* Bail out if no regexp. */
+				err (FAILURE, "Need to specify -X regexp with -Y");
+			}
 			break;
 		case 'b':
 			batchsize = atoi (optarg);
@@ -1770,6 +1984,10 @@ main (int argc, char *argv[])
 		{
 			msg ("UTF check requested with locale %s", utf);
 		}
+		if (regexp != NULL)
+		{
+			msg ("Regexp to match is '%s'", regexp);
+		}
 		msg ("Directory string is '%s'", directory);
 	}
 
@@ -1856,11 +2074,13 @@ main (int argc, char *argv[])
 			if (dirsonly)
 			{
 
-				/* Print directory info. */
+				/* Print directory info when verbose. */
 				if (verbose)
 				{
-					info ("%s", dirname);
+					rinfopath (dirname);
 				}
+
+				/* Execute command when required. */
 				execute (ntasks, command, dirname);
 			}
 			else
@@ -1896,9 +2116,11 @@ main (int argc, char *argv[])
 						(void) strcat (pathname, "/");
 						(void) strcat (pathname, filename);
 						(void) strcpy (dbc->last_path, pathname);
+
+						/* Check if matches with regexp if needed. */
 						if (verbose)
 						{
-							info ("%s", pathname);
+							rinfopath (pathname);
 						}
 						if (utf != NULL)
 						{
@@ -1908,16 +2130,17 @@ main (int argc, char *argv[])
 								/* Print non-conforming path. */
 								msg ("%s", pathname);
 
-								/* Execute command for malformed path. */
+								/* Execute command for malformed
+								   path. */
 								execute (ntasks, command, pathname);
 								dbc->nutfno++;
 							}
-						}
-						else
-						{
+							else
+							{
 
-							/* Generic case. */
-							execute (ntasks, command, pathname);
+									/* Generic case. */
+									execute (ntasks, command, pathname);
+							}
 						}
 					}
 
@@ -1956,6 +2179,10 @@ main (int argc, char *argv[])
 	if (dbc->endtime == (time_t) -1)
 	{
 		err (FAILURE, "Error getting end time");
+	}
+	if (regexp != NULL)
+	{
+		regfree (rxc);
 	}
 	if (summary)
 	{

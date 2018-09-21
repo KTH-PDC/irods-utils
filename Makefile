@@ -110,6 +110,9 @@ test: ifind
 	./ifind -d 99 -S -n 4 -b 32 -c ./nullcmd $(TD1) | \
  egrep -v -e 'Running command|Build' >>$(LIST)
 	./ifind -v -E demoResc $(TD1)
+	echo "========" >>$(LIST)
+	./ifind -v -X 'boost' /snic.se/home/fconagy/x >>$(LIST)
+	./ifind -v -X 'boost' -Y 'XXXXX' /snic.se/home/fconagy/x >>$(LIST)
 	echo "Tests finished check $(LIST)"
 
 # Distribution kit.
