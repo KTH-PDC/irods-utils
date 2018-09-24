@@ -113,6 +113,8 @@ test: ifind
 	echo "========" >>$(LIST)
 	./ifind -v -X 'boost' /snic.se/home/fconagy/x >>$(LIST)
 	./ifind -v -X 'boost' -Y 'XXXXX' /snic.se/home/fconagy/x >>$(LIST)
+	echo "========" >>$(LIST)
+	./ifind -v -l 256 /snic.se/home/fconagy/x >>$(LIST)
 	echo "Tests finished check $(LIST)"
 
 # Distribution kit.

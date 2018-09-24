@@ -89,6 +89,9 @@ static int test = false;
 /* Continue when command fails. */
 static int force = false;
 
+/* Check path length. */
+static int check_length = 0;
+
 /* Will quit after this many failures. */
 static int max_retry_failures = 32768;
 
@@ -295,10 +298,10 @@ rsubs (char *result, char *s, char *rs)
 	}
 }
 
-/* Print pathname when regexp matches. */
+/* Print pathname. */
 
 static void
-rinfopath (char *pathname)
+infopath (char *pathname)
 {
 
 	/* This is pathname with substitutions. */
@@ -331,6 +334,15 @@ rinfopath (char *pathname)
 				/* No substitution, regexp match, print name. */
 				info ("%s", pathname);
 			}
+		}
+	}
+	else if (check_length > 0)
+	{
+
+		/* If length check required print the name if too long. */
+		if (strlen (pathname) > check_length)
+		{
+			info ("%s", pathname);
 		}
 	}
 	else
@@ -1643,6 +1655,7 @@ where\n\
                     Quoted string. The default is to print the pathname.\n\
     -d level        set the debug level, greater for more details.\n\
     -f              force, continue when the command returns non-zero status.\n\
+    -l length       check if any file pathnames longer then specified.\n\
     -n n            number of parallel worker tasks.\n\
     -p n            show progress indicator for every n files.\n\
     -q              set quiet.\n\
@@ -1670,7 +1683,7 @@ main (int argc, char *argv[])
 	int status;
 
 	/* Option string. */
-	char *options = "hC:DE:R:SX:Y:b:c:d:fn:p:qr:s:tu:v";
+	char *options = "hC:DE:R:SX:Y:b:c:d:fl:n:p:qr:s:tu:v";
 
 	/* Getopt option. */
 	int ch;
@@ -1840,6 +1853,13 @@ main (int argc, char *argv[])
 		case 'f':
 			force = true;
 			break;
+		case 'l':
+			check_length = atoi (optarg);
+			if (check_length <= 0)
+			{
+				err (FAILURE, "Wrong number for pathname length check");
+			}
+			break;
 		case 'n':
 			ntasks = atoi (optarg);
 			if (ntasks <= 0)
@@ -1900,6 +1920,12 @@ main (int argc, char *argv[])
 			break;
 		}
 		ch = getopt (argc, argv, options);
+	}
+
+	/* Checking switches. */
+	if (check_length > 0 && regexp != NULL)
+	{
+		err (FAILURE, "Cannot specify both regexp and length check");
 	}
 
 	/* Check for arguments. */
@@ -2077,7 +2103,7 @@ main (int argc, char *argv[])
 				/* Print directory info when verbose. */
 				if (verbose)
 				{
-					rinfopath (dirname);
+					infopath (dirname);
 				}
 
 				/* Execute command when required. */
@@ -2120,7 +2146,7 @@ main (int argc, char *argv[])
 						/* Check if matches with regexp if needed. */
 						if (verbose)
 						{
-							rinfopath (pathname);
+							infopath (pathname);
 						}
 						if (utf != NULL)
 						{

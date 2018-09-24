@@ -15,6 +15,7 @@ ifind \- iRODS find utility
 .B [ \-c\ \fIcommand\fR ]
 .B [ \-d\ \fIlevel\fR ]
 .B [ \-f ]
+.B [ \-l\ \fIlength\fR ]
 .B [ \-n\ \fIn\fR ]
 .B [ \-p\ \fIn\fR ]
 .B [ \-q ]
@@ -93,6 +94,11 @@ The default is no debug, if this switch is omitted.
 .TP
 .B \-f\fR
 Force, continue even when the command returns non-zero status.
+
+.TP
+.B \-l \fIlength\fR
+Report files with pathname longer then this number.
+Do not specify this together with -X or -Y.
 
 .TP
 .B \-n \fIn\fR
