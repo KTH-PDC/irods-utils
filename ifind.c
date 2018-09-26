@@ -774,7 +774,8 @@ FROM r_data_main WHERE coll_id=%s";
 	{
 
 		/* Default case, show all matches. There will be replicas. */
-		files_select = "DECLARE d CURSOR FOR SELECT data_size,data_name \
+		files_select = "DECLARE d CURSOR FOR SELECT \
+data_id,data_size,data_name \
 FROM r_data_main WHERE coll_id=%s";
 	}
 	files_len = (size_t) (strlen (files_select) +
@@ -1615,13 +1616,15 @@ execute (int ntasks, char *command, char *path)
 	else
 	{
 
-		/* No command specified so we print the pathname.
-		   Also we should run only one task (garbled output). */
+		/* No command specified. Also we should run only one
+		   task (garbled output). */
 		if (ntasks > 0 )
 		{
 			err (FAILURE, "Cannot multitask when no command was specified");
 		}
-		msg (path);
+
+		/* And just fail out anyway. */
+		err (FAILURE, "No command to execute");
 	}
 }
 
@@ -1683,7 +1686,7 @@ main (int argc, char *argv[])
 	int status;
 
 	/* Option string. */
-	char *options = "hC:DE:R:SX:Y:b:c:d:fl:n:p:qr:s:tu:v";
+	char *options = "hC:DE:IR:SX:Y:b:c:d:fl:n:p:qr:s:tu:v";
 
 	/* Getopt option. */
 	int ch;
@@ -1693,6 +1696,9 @@ main (int argc, char *argv[])
 
 	/* Directories only. */
 	boolean dirsonly = false;
+
+	/* Print file id with the name. */
+	boolean printid = false;
 
 	/* Batch size, number of rows to process in one go. */
 	int batchsize = 1024;
@@ -1756,6 +1762,9 @@ main (int argc, char *argv[])
 	/* File size. */
 	long long unsigned filesize;
 
+	/* File id (column dat_id in r_data_main). */
+	long long unsigned fileid;
+
 	/* Path name. */
 	char *pathname;
 
@@ -1776,6 +1785,9 @@ main (int argc, char *argv[])
 			break;
 		case 'E':
 			resource = optarg;
+			break;
+		case 'I':
+			printid = true;
 			break;
 		case 'R':
 			retry = true;
@@ -2106,8 +2118,11 @@ main (int argc, char *argv[])
 					infopath (dirname);
 				}
 
-				/* Execute command when required. */
-				execute (ntasks, command, dirname);
+				/* Execute command  for directory when required. */
+				if (command != NULL)
+				{
+					execute (ntasks, command, dirname);
+				}
 			}
 			else
 			{
@@ -2125,12 +2140,16 @@ main (int argc, char *argv[])
 					{
 
 						/* File name. */
-						filename = PQgetvalue(hf->res, j, 1);
+						filename = PQgetvalue(hf->res, j, 2);
 
 						/* File size. */
 						filesize = (long long unsigned)
-							atol (PQgetvalue(hf->res, j, 0));
+							atol (PQgetvalue(hf->res, j, 1));
 						dbc->total += filesize;
+
+						/* File id. */
+						fileid = (long long unsigned)
+							atol (PQgetvalue(hf->res, j, 0));
 
 						/* Print file info. */
 						if ((strlen (dirname) + strlen (filename) + 2) >
@@ -2148,6 +2167,12 @@ main (int argc, char *argv[])
 						{
 							infopath (pathname);
 						}
+						if (printid)
+						{
+
+							/* Print with id. */
+							info ("%24llu %s", fileid, pathname);
+						}
 						if (utf != NULL)
 						{
 							if (! is_utf (pathname))
@@ -2157,15 +2182,21 @@ main (int argc, char *argv[])
 								msg ("%s", pathname);
 
 								/* Execute command for malformed
-								   path. */
-								execute (ntasks, command, pathname);
+								   path if there is any. */
+								if (command != NULL)
+								{
+									execute (ntasks, command, pathname);
+								}
 								dbc->nutfno++;
 							}
-							else
-							{
+						}
+						else
+						{
 
-									/* Generic case. */
-									execute (ntasks, command, pathname);
+							/* Generic case. Execute command when required. */
+							if (command != NULL)
+							{
+								execute (ntasks, command, pathname);
 							}
 						}
 					}
