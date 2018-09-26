@@ -1648,7 +1648,8 @@ where\n\
     -D              Select directories/collections only.\n\
                     In this case files will not be listed.\n\
                     The default is to list files.\n\
-    -E              resource.\n\
+    -E resource     restrict to this resource.\n\
+    -I              also print file IDs.\n\
     -S              print summary.\n\
     -X regexp       Match regexp.\n\
     -Y substitute   Substitute matching regexp with this.\n\
