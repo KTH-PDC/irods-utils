@@ -67,6 +67,9 @@ static int progress = 0;
 /* SQL statement. */
 static char *sqlstmt = NULL;
 
+/* Number of SQL statements executed. */
+static long unsigned nsqlstmt = 0;
+
 /* Regexp. */
 static char *regexp = NULL;
 
@@ -672,6 +675,7 @@ execute_sqlstmt (PGconn *conn, char *sql, long long unsigned id, char *path)
 		/* Execute SQL command. */
 		res = pcmd (conn, stmt);
 		PQclear (res);
+		nsqlstmt++;
 	}
 }
 
