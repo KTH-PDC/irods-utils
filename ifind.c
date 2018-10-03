@@ -17,6 +17,8 @@
 #include <locale.h>
 #include <xlocale.h>
 #include <regex.h>
+#include <math.h>
+#include <limits.h>
 
 /* Postgres includes. Requires Postgres development packages. */
 #include "libpq-fe.h"
@@ -61,6 +63,9 @@ static int verbose = false;
 
 /* Progress indicator. */
 static int progress = 0;
+
+/* SQL statement. */
+static char *sqlstmt = NULL;
 
 /* Regexp. */
 static char *regexp = NULL;
@@ -607,6 +612,66 @@ print_summary (dbc_t *d)
 		totalspeed = printsize (totalbps);
 		msg ("%24s / second", totalspeed);
 		free (totalspeed);
+	}
+}
+
+/* Maximum length of SQL statement. */
+#define MAX_SQL_STMT ((int) 65535)
+
+/* Execute SQL statement for an object. */
+
+static void
+execute_sqlstmt (PGconn *conn, char *sql, long long unsigned id, char *path)
+{
+	int status;
+
+	/* Postgres exec result. */
+	PGresult *res;
+
+	/* Statement length. */
+	size_t s;
+
+	/* Postgresql statement. */
+	char stmt[MAX_SQL_STMT];
+
+	/* The SQL string should accomodate the ID and a bit more. */
+	s = (size_t) MAX_SQL_STMT - (size_t) (log10 (ULLONG_MAX) + 2)
+		- (size_t) 16;
+
+	/* It should have proper format string included. */
+	if (strstr (sql, "%llu") == NULL)
+	{
+		err (FAILURE, "SQL statement string does not have %llu for id");
+	}
+
+	/* Edit id into the string. */
+	status = snprintf (stmt, s, sql, id);
+	if (status > (int) s)
+	{
+
+		/* Fail out if too long and truncated. */
+		err (FAILURE, "SQL statement string %s too long", stmt);
+	}
+	if (status < 0)
+	{
+		err (FAILURE, "Function snprintf failed %d - confused", status);
+	}
+
+	/* We got the SQL statement, execute. */
+	if (debug > 5)
+	{
+		msg ("SQL '%s' for %s", stmt, path);
+	}
+	if (test)
+	{
+		msg ("%s", stmt);
+	}
+	else
+	{
+
+		/* Execute SQL command. */
+		res = pcmd (conn, stmt);
+		PQclear (res);
 	}
 }
 
@@ -1222,12 +1287,22 @@ run_command (int retries, int period, char *cmd)
 			if (status != 0)
 			{
 
-				/* Non-zero returned from the command. */
-				err (FAILURE, "Error %d running '%s'", status, cmd);
-			}
+				/* Non-zero returned from the command.
+				   Don't quit when forced. */
+				if (! force)
+				{
 
-			/* No error, status is 0, finish here. */
-			return (0);
+					/* Abort will never return. */
+					err (FAILURE, "Error %d running '%s'", status, cmd);
+				}
+				return (status);
+			}
+			else
+			{
+
+				/* No error, status is 0, finish here. */
+				return (0);
+			}
 		}
 	}
 	else
@@ -1637,8 +1712,9 @@ print_help (void)
 This program is like the find utility, for iRODS.\n\
 Processes a directory tree and executes a command for each file/collection.\n\
 Usage:\n\
-    find [-h][-C connection][-D][-E resource][-S][-X regexp]\n\
-        [-b batchsize][-d level][-f][-n n]\n\
+    find [-h][-C connection][-D][-E resource][-I][-Q sql][R n,w,m]\n\
+        [-S][-X regexp][-Y subst]\n\
+        [-b batchsize][-c command][-d level][-f][-l n][-n n]\n\
         [-p n][-q][-r n][-s type][-t][-u locale][-v]\n\
         collection\n\
 where\n\
@@ -1650,6 +1726,9 @@ where\n\
                     The default is to list files.\n\
     -E resource     restrict to this resource.\n\
     -I              also print file IDs.\n\
+    -Q sql          execute SLQ command with object id.\n\
+    -R n,w,m        retry failed command n times after waiting for w seconds,\n\
+                    allow m retries all in all\n\
     -S              print summary.\n\
     -X regexp       Match regexp.\n\
     -Y substitute   Substitute matching regexp with this.\n\
@@ -1664,8 +1743,6 @@ where\n\
     -p n            show progress indicator for every n files.\n\
     -q              set quiet.\n\
     -r n            replica number, the default is all replicas\n\
-    -R n,w,m        retry failed command n times after waiting for w seconds,\n\
-                    allow m retries all in all\n\
     -s type         set sort type, 0 for no sort, 1 ascending, 2 descending.\n\
                     3 ascending unique, 4 descending unique.\n\
                     The default is not to sort.\n\
@@ -1687,7 +1764,7 @@ main (int argc, char *argv[])
 	int status;
 
 	/* Option string. */
-	char *options = "hC:DE:IR:SX:Y:b:c:d:fl:n:p:qr:s:tu:v";
+	char *options = "hC:DE:IQ:R:SX:Y:b:c:d:fl:n:p:qr:s:tu:v";
 
 	/* Getopt option. */
 	int ch;
@@ -1789,6 +1866,9 @@ main (int argc, char *argv[])
 			break;
 		case 'I':
 			printid = true;
+			break;
+		case 'Q':
+			sqlstmt = optarg;
 			break;
 		case 'R':
 			retry = true;
@@ -1939,6 +2019,10 @@ main (int argc, char *argv[])
 	if (check_length > 0 && regexp != NULL)
 	{
 		err (FAILURE, "Cannot specify both regexp and length check");
+	}
+	if (force && retry)
+	{
+		err (FAILURE, "Do not specify both force and retry");
 	}
 
 	/* Check for arguments. */
@@ -2118,11 +2202,22 @@ main (int argc, char *argv[])
 				{
 					infopath (dirname);
 				}
+				if (printid)
+				{
+
+					/* Print with id. */
+					info ("%24s %s", coll_id, dirname);
+				}
 
 				/* Execute command  for directory when required. */
 				if (command != NULL)
 				{
 					execute (ntasks, command, dirname);
+				}
+				if (sqlstmt != NULL)
+				{
+					execute_sqlstmt (conn, sqlstmt,
+						(long long unsigned) atoll (coll_id), dirname);
 				}
 			}
 			else
@@ -2198,6 +2293,11 @@ main (int argc, char *argv[])
 							if (command != NULL)
 							{
 								execute (ntasks, command, pathname);
+							}
+							if (sqlstmt != NULL)
+							{
+								execute_sqlstmt (conn, sqlstmt,
+									fileid, pathname);
 							}
 						}
 					}

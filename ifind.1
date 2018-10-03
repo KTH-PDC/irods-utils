@@ -9,6 +9,8 @@ ifind \- iRODS find utility
 .B [ \-C\ \fIconnection\fR ]
 .B [ \-D ]
 .B [ \-E\ \fIresource\fR ]
+.B [ \-Q\ \fIsqlstatement\fR ]
+.B [ \-R\ fIn,w,m\fR ]
 .B [ \-X\ \fIregexp\fR ]
 .B [ \-Y\ \fIsubst\fR ]
 .B [ \-b\ \fIbatchsize\fR ]
@@ -19,7 +21,6 @@ ifind \- iRODS find utility
 .B [ \-n\ \fIn\fR ]
 .B [ \-p\ \fIn\fR ]
 .B [ \-q ]
-.B [ \-R \fIn,w,m\fR ]
 .B [ \-s\ \fItype\fR ]
 .B [ \-S ]
 .B [ \-v ]
@@ -63,6 +64,19 @@ Resource name to select.
 .TP
 .B \-I\fR
 Also print file IDs.
+
+.TP
+.B \-Q \fIsqlstatement\fR
+Execute a Postgresql statement for every file or collection,
+replacing the token
+.B %llu
+with the ID of the object. The statement
+string will contain spaces so it must be quoted.
+
+.TP
+.B \-R \fIn,w,m\fR
+Retry failed command \fIn\fR times after waiting for \fIw\fR seconds,
+allowed \fIm\fR max tries all in all.
 
 .TP
 .B \-X \fIregexp\fR
@@ -125,11 +139,6 @@ Quiet.
 .TP
 .B \-r \fIn\fR
 Replica number. The default is all replicas.
-
-.TP
-.B \-R \fIn,w,m\fR
-Retry failed command \fIn\fR times after waiting for \fIw\fR seconds,
-allowed \fIm\fR max tries all in all.
 
 .TP
 .B \-s \fItype\fR
