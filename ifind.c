@@ -306,6 +306,62 @@ rsubs (char *result, char *s, char *rs)
 	}
 }
 
+/* Transform pathname with regexp, returns true when match. */
+
+static int
+transformpath (char *t, char *pathname)
+{
+
+	/* If there was a match. */
+	int match = false;
+
+	/* Pathname with substitutions, a copy will be returned. */
+	char r[PATHNAME_LENGTH];
+
+	/* All EOS. */
+	memset (r, 0, (size_t) PATHNAME_LENGTH);
+
+	/* Pathname should be a static with length PATHNAME_LENGTH. */
+	if (pathname == NULL || t == NULL)
+	{
+		err (FAILURE, "Function transformpath received NULL - confused");
+	}
+
+	/* Transform path when regexp. */
+	if (regexp != NULL)
+	{
+
+		/* If there is a match. */
+		if (rmatch (pathname))
+		{
+			match = true;
+			if (regexpsubst != NULL)
+			{
+
+				/* Do substitutions into R. */
+				rsubs (r, pathname, regexpsubst);
+
+				/* Write transformed pathname. */
+				(void) strncpy (t, r, PATHNAME_LENGTH);
+			}
+		}
+		else
+		{
+
+			/* Regex specified but no match. */
+			match = false;
+		}
+	}
+	else
+	{
+
+		/* No regexp. Write pathname as it is. Take it as a match. */
+		match = true;
+		(void) strncpy (t, pathname, PATHNAME_LENGTH);
+	}
+	return (match);
+}
+
 /* Print pathname. */
 
 static void
@@ -836,7 +892,7 @@ select_files (PGconn *conn, int sorted, int fetchcount,
 		/* Unique file names. */
 		files_select =
 			"DECLARE d CURSOR FOR SELECT DISTINCT ON (data_name) \
-data_size,data_name \
+data_id,data_size,data_name \
 FROM r_data_main WHERE coll_id=%s";
 	}
 	else
@@ -1838,6 +1894,9 @@ main (int argc, char *argv[])
 	/* Directory name. */
 	char *dirname;
 
+	/* Directory name tranformed with regexp. */
+	char *tdirname;
+
 	/* File name. */
 	char *filename;
 
@@ -1849,6 +1908,15 @@ main (int argc, char *argv[])
 
 	/* Path name. */
 	char *pathname;
+
+	/* Path name transformed. */
+	char *tpathname;
+
+	/* If there was a regexp match for directory. */
+	int dmatch = false;
+
+	/* If there was a regexp match for a file. */
+	int fmatch = false;
 
 	/* Get command line switches. */
 	ch = getopt (argc, argv, options);
@@ -1883,7 +1951,7 @@ main (int argc, char *argv[])
 			mrt = atoi (strtok_r (NULL, ",", &state));
 			if (rtr <= 0 || dly <= 0 || mrt <= 0)
 			{
-				err (FAILURE, "Wrong specification for retries");
+				err (FAILURE, "Wrong format for retries");
 			}
 
 			/* Maximum retries in one go, delay in seconds and
@@ -2179,6 +2247,12 @@ main (int argc, char *argv[])
 	/* Full pathname. */
 	pathname = (char *) allocate (PATHNAME_LENGTH);
 
+	/* Transformed pathname. */
+	tpathname = (char *) allocate (PATHNAME_LENGTH);
+
+	/* Transformed directory name. */
+	tdirname = (char *) allocate (PATHNAME_LENGTH);
+
 	/* Issue Postgres select for the directory tree. */
 	hd = select_directories (conn, sort, batchsize, directory);
 	dbc->hd = hd;
@@ -2195,39 +2269,71 @@ main (int argc, char *argv[])
 
 			/* Collection internal id and collection name. */
 			coll_id = PQgetvalue(hd->res, i, 0);
+			if (coll_id == NULL)
+			{
+				err (FAILURE, "Function PQgetvalue returned NULL - confused");
+			}
 			dirname = PQgetvalue(hd->res, i, 1);
+			if (dirname == NULL)
+			{
+				err (FAILURE,
+					"Function PQgetvalue returned NULL - confused");
+			}
 			(void) strcpy (dbc->last_path, dirname);
 
+			/* If we do only directories. */
 			if (dirsonly)
 			{
 
-				/* Print directory info when verbose. */
-				if (verbose)
-				{
-					infopath (dirname);
-				}
-				if (printid)
-				{
+				/* Transform path accordingly to regexp. */
+				dmatch = transformpath (tdirname, dirname);
 
-					/* Print with id. */
-					info ("%24s %s", coll_id, dirname);
+				/* Print transformed directory name when verbose. */
+				if (dmatch && verbose)
+				{
+					info ("%s", tdirname);
 				}
 
-				/* Execute command  for directory when required. */
-				if (command != NULL)
+				/* Print transformed name with file ID. */
+				/* Attention! This listing might be misleading showing
+				   IDs with names which are not the real names. */
+				if (dmatch && printid)
 				{
-					execute (ntasks, command, dirname);
+
+					/* Print transformed name with id. */
+					info ("%24s %s", coll_id, tdirname);
 				}
-				if (sqlstmt != NULL)
+
+				/* Execute command  for the directory with the
+				   transformed name when required. */
+				if (dmatch && (command != NULL))
+				{
+					execute (ntasks, command, tdirname);
+				}
+
+				/* Execute SQL statement with the transformed directory
+				   name when required. */
+				if (dmatch && (sqlstmt != NULL))
 				{
 					execute_sqlstmt (conn, sqlstmt,
-						(long long unsigned) atoll (coll_id), dirname);
+						(long long unsigned) atoll (coll_id), tdirname);
+				}
+
+				/* When the name is too long. */
+				if (dmatch && (check_length > 0))
+				{
+
+					/* Length check required print the name if too long. */
+					if (strlen (pathname) > check_length)
+					{
+						info ("%s", pathname);
+					}
 				}
 			}
 			else
 			{
 
-				/* Now the files in that directory. */
+				/* Files were asked so now the files in the directory. */
 				hf = select_files (conn, sort, batchsize, coll_id);
 				dbc->hf = hf;
 				fetch (hf);
@@ -2241,6 +2347,11 @@ main (int argc, char *argv[])
 
 						/* File name. */
 						filename = PQgetvalue(hf->res, j, 2);
+						if (filename == NULL)
+						{
+							err (FAILURE,
+								"Function PQgetvalue returned NULL - confused");
+						}
 
 						/* File size. */
 						filesize = (long long unsigned)
@@ -2251,7 +2362,7 @@ main (int argc, char *argv[])
 						fileid = (long long unsigned)
 							atol (PQgetvalue(hf->res, j, 0));
 
-						/* Print file info. */
+						/* File info. */
 						if ((strlen (dirname) + strlen (filename) + 2) >
 							PATHNAME_LENGTH)
 						{
@@ -2262,48 +2373,70 @@ main (int argc, char *argv[])
 						(void) strcat (pathname, filename);
 						(void) strcpy (dbc->last_path, pathname);
 
-						/* Check if matches with regexp if needed. */
-						if (verbose)
+						/* If the file name matches regexp. */
+						fmatch = transformpath (tpathname, pathname);
+
+						/* Print transformed name if matches and verbose. */
+						if (fmatch && verbose)
 						{
-							infopath (pathname);
+							info ("%s", tpathname);
 						}
-						if (printid)
+
+						/* Print transformed name with ID. */
+						/* Attention! This listing might be misleading showing
+						   IDs with names which are not the real names. */
+						if (fmatch && printid)
 						{
 
-							/* Print with id. */
-							info ("%24llu %s", fileid, pathname);
+							/* Print transformed name with id. */
+							info ("%24llu %s", fileid, tpathname);
 						}
-						if (utf != NULL)
+
+						/* Check for UTF conformance. */
+						if (fmatch && (utf != NULL))
 						{
 							if (! is_utf (pathname))
 							{
 
-								/* Print non-conforming path. */
-								msg ("%s", pathname);
+								/* Print non-conforming transformed path. */
+								msg ("%s", tpathname);
 
 								/* Execute command for malformed
 								   path if there is any. */
 								if (command != NULL)
 								{
-									execute (ntasks, command, pathname);
+									execute (ntasks, command, tpathname);
 								}
 								dbc->nutfno++;
 							}
 						}
-						else
+
+						/* Execute command when required. */
+						if (fmatch && command != NULL)
+						{
+							execute (ntasks, command, tpathname);
+						}
+
+						/* SQL statement on transformed path. */
+						if (fmatch && sqlstmt != NULL)
+						{
+							execute_sqlstmt (conn, sqlstmt,
+								fileid, tpathname);
+						}
+
+						/* When the name is too long. */
+						if (fmatch && (check_length > 0))
 						{
 
-							/* Generic case. Execute command when required. */
-							if (command != NULL)
+							/* Length check required, print the
+							   name if it is too long. */
+							if (strlen (pathname) > check_length)
 							{
-								execute (ntasks, command, pathname);
-							}
-							if (sqlstmt != NULL)
-							{
-								execute_sqlstmt (conn, sqlstmt,
-									fileid, pathname);
+								info ("%s", tpathname);
 							}
 						}
+
+						/* Nothing was asked, nothing to do. */
 					}
 
 					/* Next batch of files. */
@@ -2324,6 +2457,8 @@ main (int argc, char *argv[])
 	}
 	closecursor (hd);
 	free (pathname);
+	free (tpathname);
+	free (tdirname);
 
 	/* Last flush when needed. */
 	if (ntasks > 0)

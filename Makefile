@@ -58,8 +58,8 @@ test: ifind
 	-./ifind -C "dbname=NODB user=nouser" '/snic.se/test'
 	-./ifind -h
 	./ifind $(TD1) >$(LF)
-	./ifind -s 3 $(TD1) >$(LF)
-	./ifind -s 3 -D $(TD1) >$(LD)
+	./ifind -v -s 3 $(TD1) >$(LF)
+	./ifind -v -s 3 -D $(TD1) >$(LD)
 	echo "========" >>$(LIST)
 	./ifind -d 99 $(TD1) >>$(LIST)
 	echo "========" >>$(LIST)
